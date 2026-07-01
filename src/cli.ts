@@ -7,6 +7,10 @@ import {
   getRawDefinition,
   resolveConfig,
   saveApiKeyToFile,
+  saveLanguageToFile,
+  readLanguageFromFile,
+  isSupportedLanguage,
+  SUPPORTED_LANGUAGES,
   fetchRemoteVersion,
   type ManifestConfig,
 } from "./manifest.js";
@@ -76,15 +80,59 @@ export async function runCli(argv: string[]): Promise<void> {
       console.log("API key saved to ~/.d2manifest/apikey");
     });
 
+  config
+    .command("set-language <lang>")
+    .description(
+      `Save your preferred manifest language to ~/.d2manifest/language. Supported: ${SUPPORTED_LANGUAGES.join(", ")}.`,
+    )
+    .addHelpText(
+      "after",
+      "\nExamples:\n  codex config set-language de    # German\n  codex config set-language fr    # French\n  codex config set-language en    # English (default)\n\nAfter changing the language, run 'codex sync' to download the new manifest.",
+    )
+    .action((lang: string) => {
+      const lower = lang.toLowerCase();
+      if (!isSupportedLanguage(lower)) {
+        console.error(`Unsupported language: "${lang}"`);
+        console.error(`Supported: ${SUPPORTED_LANGUAGES.join(", ")}`);
+        process.exit(1);
+      }
+      saveLanguageToFile(lower);
+      console.log(`Language saved: ${lower}`);
+      console.log("Run 'codex sync' to download the manifest in the new language.");
+    });
+
+  config
+    .command("get-language")
+    .description("Show the currently saved language preference.")
+    .action(() => {
+      const saved = readLanguageFromFile();
+      if (saved) {
+        console.log(`Saved language: ${saved}`);
+      } else {
+        console.log("No language saved. Default: en");
+        console.log("Run 'codex config set-language <lang>' to set one.");
+      }
+    });
+
   // ── Sync ────────────────────────────────────────────────────────────
   program
     .command("sync")
     .alias("s")
     .description("Download the Destiny 2 manifest SQLite DB (cached locally). Run once before using other commands.")
     .option("-f, --force", "Force re-download even if version matches.")
-    .addHelpText("after", "\nExamples:\n  codex sync\n  codex sync --force")
-    .action(async (opts: { force?: boolean }) => {
-      const cfg = resolveConfig();
+    .option("-l, --language <lang>", `Manifest language (default: saved or 'en'). Supported: ${SUPPORTED_LANGUAGES.join(", ")}.`)
+    .addHelpText("after", "\nExamples:\n  codex sync\n  codex sync --force\n  codex sync --language de\n  codex sync -l fr")
+    .action(async (opts: { force?: boolean; language?: string }) => {
+      let lang = opts.language;
+      if (lang) {
+        lang = lang.toLowerCase();
+        if (!isSupportedLanguage(lang)) {
+          console.error(`Unsupported language: "${opts.language}"`);
+          console.error(`Supported: ${SUPPORTED_LANGUAGES.join(", ")}`);
+          process.exit(1);
+        }
+      }
+      const cfg = resolveConfig(lang ? { language: lang } : undefined);
       const remote = await fetchRemoteVersion(cfg);
       console.log(`Remote manifest version: ${remote.version}`);
       const meta = await ensureManifest(cfg, { force: opts.force });

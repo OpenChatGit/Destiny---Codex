@@ -17,11 +17,14 @@ npm run build
 cp .env.example .env
 # Edit .env: BUNGIE_API_KEY=your_key_here
 
-# 3. Download the manifest + build indexes
+# 3. (Optional) Set your preferred language (default: en)
+codex config set-language de    # German, French, Spanish, Japanese, etc.
+
+# 4. Download the manifest + build indexes
 node dist/index.js sync
 node dist/index.js index
 
-# 4. Use it
+# 5. Use it
 node dist/index.js item Gjallarhorn
 ```
 
@@ -62,6 +65,8 @@ node dist/index.js config set-key your_key_here
 | `codex tables` | List all definition tables. |
 | `codex mcp` | Start the MCP server (for AI tool integration). |
 | `codex config set-key <key>` | Save your Bungie API key. |
+| `codex config set-language <lang>` | Save preferred manifest language (`de`, `fr`, `es`, `ja`, ...). Run `sync` after. |
+| `codex config get-language` | Show currently saved language. |
 
 ## Examples
 
@@ -127,6 +132,26 @@ codex rolls Gjallarhorn
 
 # Raid weapon rolls
 codex rolls "Hezen Vengeance"
+```
+
+### Multi-language support
+```bash
+# Switch to German
+codex config set-language de
+codex sync
+codex index --rebuild
+
+# Now everything is in German
+codex item Gjallarhorn          # "Raketenwerfer (Exotisch)"
+codex filter --tier Exotisch --type "Raketenwerfer"
+codex rolls "Code Duello"       # "INTRINSISCHE EIGENSCHAFTEN", "WAFFEN-PERKS"
+
+# One-off language for sync (without saving)
+codex sync --language fr
+codex sync -l ja
+
+# Supported languages
+en, de, es, es-mx, fr, fr-ca, it, ja, ko, pl, pt-br, ru, zh-chs, zh-cht
 ```
 
 ## MCP Server (for AI tools)

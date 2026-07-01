@@ -21,6 +21,20 @@ BUNGIE_API_KEY=<key from https://www.bungie.net/en/Application>
 
 Or save it persistently: `node dist/index.js config set-key <key>`
 
+### Language
+
+The manifest is available in 14 languages. Default is `en`. To switch:
+
+```bash
+codex config set-language de    # German
+codex sync                      # download the German manifest
+codex index --rebuild           # rebuild indexes for the new language
+```
+
+Or use a one-off language for sync: `codex sync --language fr`.
+
+Supported: `en`, `de`, `es`, `es-mx`, `fr`, `fr-ca`, `it`, `ja`, `ko`, `pl`, `pt-br`, `ru`, `zh-chs`, `zh-cht`.
+
 ## Commands
 
 | Command | Description |
@@ -40,6 +54,8 @@ Or save it persistently: `node dist/index.js config set-key <key>`
 | `node dist/index.js graph <table> <hash> [--depth <n>] [--branch <n>]` | Traverse the reference graph as an indented tree |
 | `node dist/index.js raw <table> <hash>` | Raw JSON of a definition |
 | `node dist/index.js mcp` | Run as MCP server over stdio |
+| `node dist/index.js config set-language <lang>` | Save preferred manifest language (e.g. `de`, `fr`, `en`). Run `sync` after. |
+| `node dist/index.js config get-language` | Show currently saved language preference |
 
 ## MCP tools (same as CLI)
 
@@ -70,7 +86,8 @@ Or save it persistently: `node dist/index.js config set-key <key>`
 
 ## Notes
 
-- Manifest DB is cached at `~/.d2manifest/world_<lang>.sqlite` (~70 MB for `en`).
+- Manifest DB is cached at `~/.d2manifest/world_<lang>.sqlite` (~70 MB for `en`, one file per language).
+- Language preference is persisted at `~/.d2manifest/language`. Override with `D2_LANGUAGE` env var or `--language` flag on `sync`.
 - Index DB is cached at `~/.d2manifest/index_<version>.db` (~420 MB, rebuilt on manifest version change).
 - Hash references are resolved two ways: (1) field-name heuristic
   (`itemHash` → `DestinyInventoryItemDefinition`), (2) reverse index fallback

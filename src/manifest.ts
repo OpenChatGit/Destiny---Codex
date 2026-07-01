@@ -46,13 +46,21 @@ export function resolveConfig(partial?: Partial<ManifestConfig>): ManifestConfig
   const cacheDir = partial?.cacheDir ?? process.env.D2_CACHE_DIR ?? defaultCacheDir();
   return {
     apiKey,
-    language: partial?.language ?? process.env.D2_LANGUAGE ?? "en",
+    language:
+      partial?.language ??
+      process.env.D2_LANGUAGE ??
+      readLanguageFromFile(cacheDir) ??
+      "en",
     cacheDir,
   };
 }
 
 function apiKeyFilePath(cacheDir: string): string {
   return join(cacheDir, "apikey");
+}
+
+function languageFilePath(cacheDir: string): string {
+  return join(cacheDir, "language");
 }
 
 function readApiKeyFromFile(): string | undefined {
@@ -65,6 +73,34 @@ function readApiKeyFromFile(): string | undefined {
 export function saveApiKeyToFile(key: string, cacheDir: string = defaultCacheDir()): void {
   mkdirSync(cacheDir, { recursive: true });
   writeFileSync(apiKeyFilePath(cacheDir), key.trim(), { mode: 0o600 });
+}
+
+/**
+ * Reads the persisted language preference from ~/.d2manifest/language.
+ * Falls back to undefined (caller defaults to "en").
+ */
+export function readLanguageFromFile(cacheDir: string = defaultCacheDir()): string | undefined {
+  const file = languageFilePath(cacheDir);
+  if (existsSync(file)) return readFileSync(file, "utf8").trim();
+  return undefined;
+}
+
+/**
+ * Persists the language preference to ~/.d2manifest/language.
+ * Used by `codex config set-language <lang>`.
+ */
+export function saveLanguageToFile(language: string, cacheDir: string = defaultCacheDir()): void {
+  mkdirSync(cacheDir, { recursive: true });
+  writeFileSync(languageFilePath(cacheDir), language.trim());
+}
+
+/** Languages supported by the Bungie manifest. */
+export const SUPPORTED_LANGUAGES = [
+  "en", "de", "es", "es-mx", "fr", "fr-ca", "it", "ja", "ko", "pl", "pt-br", "ru", "zh-chs", "zh-cht",
+] as const;
+
+export function isSupportedLanguage(lang: string): boolean {
+  return (SUPPORTED_LANGUAGES as readonly string[]).includes(lang.toLowerCase());
 }
 
 async function bungieGet(path: string, apiKey: string): Promise<any> {
@@ -123,6 +159,7 @@ export async function ensureManifest(config: ManifestConfig, opts?: { force?: bo
     opts?.force ||
     !existing ||
     existing.version !== remote.version ||
+    existing.language !== config.language ||
     !existsSync(sqlitePath);
 
   if (needsDownload) {
