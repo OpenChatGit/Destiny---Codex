@@ -37,6 +37,7 @@ import { filterItems, type FilterCriteria, type FilterHit } from "./filter.js";
 import { resolveByName, formatComparison, type CompareItem } from "./compare.js";
 import { getWeaponRolls, formatRolls, type PerkSlot } from "./rolls.js";
 import { findWeaponsWithPerk, formatPerkWeapons, type PerkWeaponMatch } from "./perksearch.js";
+import { browseItems, type BrowseItem } from "./browse.js";
 import {
   extractOutgoingRefs,
   findIncomingRefs,
@@ -54,6 +55,8 @@ export interface CodexOptions {
   language?: string;
   /** Cache directory (default: ~/.d2manifest). */
   cacheDir?: string;
+  /** Query cache TTL in milliseconds (default: 300000 = 5 min). 0 disables caching. */
+  cacheTtlMs?: number;
 }
 
 /**
@@ -67,6 +70,8 @@ export class DestinyCodex {
   private _db: DatabaseSync | undefined;
   private meta: ManifestMeta | undefined;
   private hashIndex: HashIndex | undefined;
+  private queryCache: Map<string, { value: any; ts: number }> = new Map();
+  private cacheTtlMs: number;
 
   constructor(opts: CodexOptions = {}) {
     this.config = resolveConfig({
@@ -74,6 +79,28 @@ export class DestinyCodex {
       language: opts.language,
       cacheDir: opts.cacheDir,
     });
+    this.cacheTtlMs = opts.cacheTtlMs ?? 5 * 60 * 1000; // 5 min default
+  }
+
+  /** Run a function with caching. Key must be unique per query. */
+  private async cached<T>(key: string, fn: () => T | Promise<T>): Promise<T> {
+    const hit = this.queryCache.get(key);
+    if (hit && Date.now() - hit.ts < this.cacheTtlMs) {
+      return hit.value as T;
+    }
+    const value = await fn();
+    this.queryCache.set(key, { value, ts: Date.now() });
+    return value;
+  }
+
+  /** Clear the query cache. */
+  clearCache(): void {
+    this.queryCache.clear();
+  }
+
+  /** Number of cached queries. */
+  get CacheSize(): number {
+    return this.queryCache.size;
   }
 
   /** Current configuration (apiKey, language, cacheDir). */
@@ -108,6 +135,7 @@ export class DestinyCodex {
     this._db = undefined;
     this.meta = undefined;
     this.hashIndex = undefined;
+    this.queryCache.clear();
   }
 
   /** Download/refresh the manifest. Returns manifest metadata. */
@@ -176,22 +204,36 @@ export class DestinyCodex {
     return resolveByName(this.db_(), name, table);
   }
 
+  /**
+   * Browse items with full details (icon, stats, damage, tier, type).
+   * Like filter() but returns enriched data for display in apps.
+   */
+  async browse(criteria: FilterCriteria & { limit?: number }): Promise<BrowseItem[]> {
+    await this.ready();
+    const key = `browse:${JSON.stringify(criteria)}`;
+    return this.cached(key, () => browseItems(this.db_(), criteria));
+  }
+
   /** Structured filter: find items by tier, type, class, damage, stats. */
   async filter(criteria: FilterCriteria): Promise<FilterHit[]> {
     await this.ready();
-    return filterItems(this.db_(), criteria);
+    const key = `filter:${JSON.stringify(criteria)}`;
+    return this.cached(key, () => filterItems(this.db_(), criteria));
   }
 
   /** Get all possible perk rolls for a weapon (by name or hash). */
   async getRolls(nameOrHash: string | number): Promise<{ name: string; slots: PerkSlot[] } | undefined> {
     await this.ready();
     const d = this.db_();
-    if (typeof nameOrHash === "number") {
-      return getWeaponRolls(d, nameOrHash);
-    }
-    const item = resolveByName(d, nameOrHash, "DestinyInventoryItemDefinition");
-    if (!item) return undefined;
-    return getWeaponRolls(d, item.hash);
+    const hashKey = typeof nameOrHash === "number" ? nameOrHash : nameOrHash.toLowerCase();
+    return this.cached(`rolls:${hashKey}`, async () => {
+      if (typeof nameOrHash === "number") {
+        return getWeaponRolls(d, nameOrHash);
+      }
+      const item = resolveByName(d, nameOrHash, "DestinyInventoryItemDefinition");
+      if (!item) return undefined;
+      return getWeaponRolls(d, item.hash);
+    });
   }
 
   /** Get all possible perk rolls formatted as readable text. */
@@ -209,7 +251,8 @@ export class DestinyCodex {
   /** Reverse perk search: find all weapons that can roll a given perk. */
   async findWeaponsWithPerk(nameOrHash: string | number): Promise<{ perkName: string; perkHash: number; weapons: PerkWeaponMatch[] } | undefined> {
     await this.ready();
-    return findWeaponsWithPerk(this.db_(), nameOrHash);
+    const key = `perksearch:${typeof nameOrHash === "number" ? nameOrHash : nameOrHash.toLowerCase()}`;
+    return this.cached(key, () => findWeaponsWithPerk(this.db_(), nameOrHash));
   }
 
   /** Compare 2+ items side-by-side. */
@@ -274,6 +317,7 @@ export type { FilterCriteria, FilterHit } from "./filter.js";
 export type { CompareItem } from "./compare.js";
 export type { PerkSlot, PerkOption } from "./rolls.js";
 export type { PerkWeaponMatch } from "./perksearch.js";
+export type { BrowseItem } from "./browse.js";
 export type { HashIndex, ResolvedRef } from "./resolver.js";
 export { SUPPORTED_LANGUAGES, isSupportedLanguage } from "./manifest.js";
 export { extractNameDesc, guessTableByFieldName, isHashField } from "./resolver.js";

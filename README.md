@@ -1,13 +1,29 @@
 # Destiny Codex
 
-> Version **0.4.0.0** (07.01.2026)
+> Version **0.5.0.0** (07.01.2026)
 >
 > Turn the Destiny 2 Manifest (gibberish hash-reference JSON) into clean, AI-readable text — with full relationship traversal, structured filtering, item comparison, and weapon perk-roll extraction.
 
 Destiny Codex is a CLI tool **and** an MCP server. It works for **100% of the manifest** — every definition table is supported generically. Hash references are resolved into human-readable names automatically, in both directions.
 
-## What's New in 0.4.0.0
+## Changelog
 
+### 0.5.0.0 (07.01.2026)
+
+**Features:**
+- **`browse` MCP tool + CLI command** — Browse items with full display data: icons, stats, sockets, damage type, watermarks, flavor text. Like `filter` but enriched for visual/display use.
+- **`compare` MCP tool** — Compare 2-6 items side-by-side via MCP (stats, perks, properties in aligned columns). Previously only available in CLI and REST.
+- **`item` MCP tool** — Look up an item by name and get its full readable definition in one step. Replaces the search+get two-call pattern.
+- **AGENTS.md updated** — `browse.ts` and `compare.ts` now documented in the architecture section.
+
+**Bug Fixes:**
+- **`resolve` MCP tool** — Removed unnecessary database query that loaded a definition only to discard it (`void def`).
+
+---
+
+### 0.4.0.0 (07.01.2026)
+
+**Features:**
 - **Programmatic API** (`DestinyCodex` class) — Import as a library in your own Node.js app: `import { DestinyCodex } from "destiny-codex"`.
 - **REST API Server** (`codex serve`) — HTTP endpoints for web apps and frontends. No Express dependency.
 - **Weapon Perk Rolls** (`codex rolls`) — Shows all possible perks a weapon can roll, grouped by socket column (barrel, mag, traits, mods, catalyst). Marks each perk as default, random, or fixed.
@@ -15,8 +31,10 @@ Destiny Codex is a CLI tool **and** an MCP server. It works for **100% of the ma
 - **Multi-Language Support** — 14 languages via `codex config set-language <lang>`. German, French, Spanish, Japanese, and more.
 - **Auto-Update Check** — Warns when the manifest is older than 7 days (Bungie updates weekly).
 - **Test Suite** — 50 vitest tests covering resolver, formatter, filter, and compare modules.
-- **Formatter Bugfix** — `displayProperties.icon` was not being skipped despite being in the skip list.
 - **PolyForm Noncommercial License** — This software may never be used for commercial purposes.
+
+**Bug Fixes:**
+- **Formatter** — `displayProperties.icon` was not being skipped despite being in the skip list.
 
 ## Quick Start
 
@@ -54,6 +72,7 @@ node dist/index.js config set-key your_key_here
 | `codex item <name>` | Look up an item by name, show full readable definition. Picks best match automatically. |
 | `codex search <query>` | Search by name (substring, case-insensitive). `-t <table>` to filter, `-l <n>` for limit. |
 | `codex filter [options]` | Structured filter: `--tier`, `--type`, `--class`, `--damage`, `--bucket`, `--stat`. |
+| `codex browse [options]` | Browse items with full display data (icons, stats, sockets, damage, flavor text). Same filters as `filter` but enriched. |
 | `codex rolls <name>` | Show all possible perk rolls for a weapon (barrel, mag, traits, mods, catalyst). Answers "what can this weapon roll?" |
 | `codex perksearch <perk>` | Reverse perk search: find all weapons that can roll a given perk. Alias: `perks`. |
 | `codex get <table> <hash>` | Full readable definition by table + hash (all refs resolved inline). |
@@ -110,6 +129,18 @@ codex filter --type "Rocket Launcher" --stat "Blast Radius:90"
 
 # Solar Sidearms, max 10 results
 codex filter --damage Solar --type "Sidearm" --limit 10
+```
+
+### Browse (enriched item data)
+```bash
+# Exotic Rocket Launchers with icons, stats, sockets, flavor text
+codex browse --tier Exotic --type "Rocket Launcher"
+
+# Legendary Titan helmets with full display data
+codex browse --tier Legendary --class Titan --bucket Helmet --limit 10
+
+# Solar Sidearms with icons and stats
+codex browse --damage Solar --type "Sidearm" --limit 10
 ```
 
 ### Relationships (how things connect)
@@ -211,8 +242,11 @@ Add to `.devin/config.json`:
 | `list_tables` | All definition tables. |
 | `search` | Name search with optional table filter. |
 | `filter` | Structured query: itemType, tierType, classType, damageType, bucket, stat ranges. |
+| `browse` | Enriched item data: icons, stats, sockets, damage, flavor text. Same filters as `filter`. |
 | `rolls` | All possible perk rolls for a weapon (barrel, mag, traits, mods, catalyst). |
 | `perk_search` | Reverse perk search: which weapons can roll a given perk? |
+| `item` | Look up item by name → full readable definition in one step (fuzzy-matched). |
+| `compare` | Compare 2-6 items side-by-side (stats, perks, properties in columns). |
 | `get` | Readable text rendering of a definition (all hash refs resolved inline). |
 | `resolve` | Bare hash → short summary. |
 | `relationships` | Outgoing + incoming references (how things connect). |
@@ -244,6 +278,9 @@ const weapons = await codex.findWeaponsWithPerk("Incandescent");
 // Filter
 const exotics = await codex.filter({ tierTypeName: "Exotic", itemTypeDisplayName: "Rocket Launcher" });
 
+// Browse (enriched: icons, stats, sockets, flavor text)
+const browseResults = await codex.browse({ tierTypeName: "Exotic", itemTypeDisplayName: "Rocket Launcher" });
+
 // Compare
 const comparison = await codex.compare(["Gjallarhorn", "Hezen Vengeance"]);
 
@@ -271,6 +308,7 @@ All endpoints return JSON with CORS enabled:
 | `GET /api/tables` | All definition tables |
 | `GET /api/search?q=<name>&table=<t>&limit=<n>` | Search by name |
 | `GET /api/filter?tier=<t>&type=<t>&class=<c>&damage=<d>` | Structured filter |
+| `GET /api/browse?tier=<t>&type=<t>&class=<c>&damage=<d>` | Browse items with full display data (icons, stats, sockets) |
 | `GET /api/get/<table>/<hash>` | Readable definition |
 | `GET /api/resolve/<hash>` | Bare hash → summary |
 | `GET /api/rolls/<name-or-hash>` | Weapon perk rolls |
@@ -286,6 +324,7 @@ curl http://localhost:3000/api/search?q=Gjallarhorn
 curl http://localhost:3000/api/rolls/Code%20Duello
 curl http://localhost:3000/api/perksearch/Incandescent
 curl "http://localhost:3000/api/filter?tier=Exotic&type=Rocket%20Launcher&limit=5"
+curl "http://localhost:3000/api/browse?tier=Exotic&type=Rocket%20Launcher&limit=5"
 ```
 
 ## How It Works
@@ -332,6 +371,7 @@ src/
 ├── formatter.ts      # Definition → AI-readable text
 ├── relationships.ts  # Reverse index, outgoing-refs, graph traversal
 ├── filter.ts         # Structured filter queries
+├── browse.ts         # Enriched item browsing (icons, stats, sockets, flavor text)
 ├── rolls.ts          # Weapon perk-roll extraction (plug sets, random rolls)
 ├── perksearch.ts     # Reverse perk search (which weapons can roll perk X?)
 ├── compare.ts        # Side-by-side item comparison

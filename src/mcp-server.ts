@@ -23,6 +23,8 @@ import { filterItems, formatFilterResults, type FilterCriteria } from "./filter.
 import { DATE_VERSION, SEMVER, FULL_VERSION } from "./version.js";
 import { getWeaponRolls, formatRolls, rollsByName } from "./rolls.js";
 import { formatPerkWeapons } from "./perksearch.js";
+import { resolveByName, formatComparison } from "./compare.js";
+import { browseItems } from "./browse.js";
 
 // We keep a single DB connection + lazy manifest sync for the lifetime of the server.
 let db: DatabaseSync | undefined;
@@ -167,12 +169,10 @@ export async function startMcpServer(cfg: ManifestConfig): Promise<void> {
       if (!ref.found) {
         return { content: [{ type: "text", text: `Hash ${args.hash} not found in any table.` }] };
       }
-      const def = getRawDefinition(d, ref.table, args.hash);
       const text =
         `Hash ${args.hash} -> ${ref.table}\n` +
         `name: ${ref.name ?? "(unnamed)"}\n` +
         (ref.description ? `description: ${ref.description}` : "(no description)");
-      void def;
       return { content: [{ type: "text", text }] };
     },
   );
@@ -359,6 +359,129 @@ export async function startMcpServer(cfg: ManifestConfig): Promise<void> {
         return { content: [{ type: "text", text: "Provide either 'name' or 'hash'." }] };
       }
       return { content: [{ type: "text", text }] };
+    },
+  );
+
+  server.registerTool(
+    "compare",
+    {
+      description:
+        "Compare 2+ items side-by-side. Shows tier, type, class, damage, stats, and perks in aligned columns. Names are fuzzy-matched (exact match preferred, else first hit). Use this to answer 'which is better: X or Y?' or 'compare these 3 weapons'. All items must be in DestinyInventoryItemDefinition.",
+      inputSchema: {
+        names: z
+          .array(z.string())
+          .min(2)
+          .max(6)
+          .describe("Item names to compare (2-6). Fuzzy-matched against DestinyInventoryItemDefinition. E.g. ['Gjallarhorn', 'Hezen Vengeance']."),
+      },
+    },
+    async (args) => {
+      const d = await getDb();
+      const items = args.names
+        .map((n) => resolveByName(d, n, "DestinyInventoryItemDefinition"))
+        .filter((x) => x !== undefined);
+      if (items.length < 2) {
+        const found = items.map((i) => i.name);
+        const missing = args.names.filter((n) => !found.some((f) => f.toLowerCase() === n.toLowerCase()));
+        return {
+          content: [{
+            type: "text",
+            text: `Could not find: ${missing.join(", ")}. Need at least 2 items to compare. Found: ${found.length}.`,
+          }],
+        };
+      }
+      const text = formatComparison(d, items);
+      return { content: [{ type: "text", text }] };
+    },
+  );
+
+  server.registerTool(
+    "browse",
+    {
+      description:
+        "Browse items with full display data: icons, stats, damage type, sockets, watermark, flavor text. Like 'filter' but returns enriched data for each item (icon URLs, per-socket perk hashes, stat values with names). Use this when you need visual/display information, not just text. Filters work the same as 'filter'. Returns structured JSON-like text per item.",
+      inputSchema: {
+        itemTypeDisplayName: z.string().optional().describe("Substring match on type, e.g. 'Rocket Launcher', 'Gauntlets', 'Helmet'."),
+        tierTypeName: z.string().optional().describe("Tier name: 'Exotic', 'Legendary', 'Rare', etc."),
+        classType: z.number().int().optional().describe("0=Titan, 1=Hunter, 2=Warlock, 3=Any."),
+        damageType: z.number().int().optional().describe("1=Kinetic, 2=Arc, 3=Solar, 4=Void, 6=Stasis, 7=Strand."),
+        bucketName: z.string().optional().describe("Bucket name substring, e.g. 'Power Weapons', 'Helmet'."),
+        nameContains: z.string().optional().describe("Substring filter on item name (case-insensitive)."),
+        limit: z.number().int().min(1).max(200).optional().describe("Max results (default 50)."),
+      },
+    },
+    async (args) => {
+      const d = await getDb();
+      const criteria: FilterCriteria = {
+        itemTypeDisplayName: args.itemTypeDisplayName,
+        tierTypeName: args.tierTypeName,
+        classType: args.classType,
+        damageType: args.damageType,
+        bucketName: args.bucketName,
+        nameContains: args.nameContains,
+        limit: args.limit ?? 50,
+      };
+      const items = browseItems(d, criteria);
+      if (items.length === 0) {
+        return { content: [{ type: "text", text: "No items matched the filter criteria." }] };
+      }
+      const lines: string[] = [];
+      lines.push(`${items.length} item(s) found:`);
+      lines.push("=".repeat(60));
+      for (const item of items) {
+        lines.push("");
+        lines.push(`[${item.tierTypeName ?? "?"}] ${item.name} [${item.hash}]`);
+        lines.push(`  type: ${item.itemTypeDisplayName ?? "?"}`);
+        if (item.damageType) lines.push(`  damage: ${["", "Kinetic", "Arc", "Solar", "Void", "", "Stasis", "Strand"][item.damageType] ?? item.damageType}`);
+        if (item.icon) lines.push(`  icon: ${item.icon}`);
+        if (item.watermark) lines.push(`  watermark: ${item.watermark}`);
+        if (item.screenshot) lines.push(`  screenshot: ${item.screenshot}`);
+        if (item.flavorText) lines.push(`  flavor: "${item.flavorText.slice(0, 100)}"`);
+        if (item.stats && item.stats.length > 0) {
+          lines.push(`  stats:`);
+          for (const s of item.stats) {
+            lines.push(`    ${s.name}: ${s.value}/${s.maximum}`);
+          }
+        }
+        if (item.sockets && item.sockets.length > 0) {
+          lines.push(`  sockets:`);
+          for (const sock of item.sockets) {
+            lines.push(`    [${sock.index}] ${sock.category || "(uncategorized)"}: ${sock.perkHashes.length} perk(s)`);
+          }
+        }
+      }
+      return { content: [{ type: "text", text: lines.join("\n") }] };
+    },
+  );
+
+  server.registerTool(
+    "item",
+    {
+      description:
+        "Look up an inventory item by name and return its readable definition in one step. Fuzzy-matches the name (exact match preferred, else first hit). Use this instead of search+get when you know the item name and want the full definition immediately. Defaults to DestinyInventoryItemDefinition but can search any table.",
+      inputSchema: {
+        name: z.string().describe("Item name to look up, e.g. 'Gjallarhorn', 'Code Duello', 'Last Wish'."),
+        table: z
+          .string()
+          .optional()
+          .describe("Table to search in (default: 'DestinyInventoryItemDefinition'). Use e.g. 'DestinyActivityDefinition' for activities."),
+        resolveRefs: z.boolean().optional().describe("Resolve hash references to names (default true)."),
+        maxDepth: z.number().int().min(1).max(10).optional().describe("Max nesting depth (default 6)."),
+      },
+    },
+    async (args) => {
+      const d = await getDb();
+      const table = args.table ?? "DestinyInventoryItemDefinition";
+      const item = resolveByName(d, args.name, table);
+      if (!item) {
+        return { content: [{ type: "text", text: `No item named "${args.name}" found in ${table}. Try the search tool for broader results.` }] };
+      }
+      const result = formatDefinition(d, item.table, item.hash, item.def, {
+        resolveRefs: args.resolveRefs ?? true,
+        maxDepth: args.maxDepth ?? 6,
+        index: getHashIndex(d),
+      });
+      return { content: [{ type: "text", text: result.text }] };
     },
   );
 

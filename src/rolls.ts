@@ -40,6 +40,8 @@ export interface PerkOption {
   isDefault: boolean;
   /** Whether this comes from a random-roll plug set. */
   isRandomRoll: boolean;
+  /** Stat modifiers from investmentStats (e.g. +15 Blast Radius, -5 Velocity). */
+  statChanges?: { name: string; value: number }[];
 }
 
 /**
@@ -157,7 +159,21 @@ function resolvePerk(
   if (!def) return undefined;
   const { name, description } = extractNameDesc(def);
   if (!name) return undefined;
-  return { hash, name, description, isDefault, isRandomRoll };
+
+  // Extract stat modifiers from investmentStats
+  const statChanges: { name: string; value: number }[] = [];
+  if (def.investmentStats) {
+    for (const s of def.investmentStats) {
+      if (s.value === 0) continue;
+      const statDef = getRawDefinition(db, "DestinyStatDefinition", s.statTypeHash);
+      const statName = statDef?.displayProperties?.name;
+      if (statName) {
+        statChanges.push({ name: statName, value: s.value });
+      }
+    }
+  }
+
+  return { hash, name, description, isDefault, isRandomRoll, statChanges: statChanges.length > 0 ? statChanges : undefined };
 }
 
 /**
@@ -208,6 +224,10 @@ export function formatRolls(db: DatabaseSync, hash: number): string {
         if (perk.description && perk.description.length > 0) {
           const desc = perk.description.slice(0, 120);
           lines.push(`      ${desc}${perk.description.length > 120 ? "..." : ""}`);
+        }
+        if (perk.statChanges && perk.statChanges.length > 0) {
+          const stats = perk.statChanges.map(s => `${s.value > 0 ? "+" : ""}${s.value} ${s.name}`).join(", ");
+          lines.push(`      Stats: ${stats}`);
         }
       }
     }

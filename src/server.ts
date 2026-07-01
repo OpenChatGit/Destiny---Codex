@@ -109,6 +109,26 @@ export async function startRestServer(opts: ServeOptions = {}): Promise<void> {
         return json(res, 200, hits);
       }
 
+      // /api/browse — like filter but returns full display data (icons, stats, sockets)
+      if (path === "/api/browse") {
+        const criteria: Record<string, any> = {};
+        if (q.get("tier")) criteria.tierTypeName = q.get("tier")!;
+        if (q.get("type")) criteria.itemTypeDisplayName = q.get("type")!;
+        if (q.get("class")) {
+          const classMap: Record<string, number> = { Titan: 0, Hunter: 1, Warlock: 2 };
+          criteria.classType = classMap[q.get("class")!];
+        }
+        if (q.get("damage")) {
+          const dmgMap: Record<string, number> = { Kinetic: 1, Arc: 2, Solar: 3, Void: 4, Stasis: 6, Strand: 7 };
+          criteria.damageType = dmgMap[q.get("damage")!];
+        }
+        if (q.get("bucket")) criteria.bucketName = q.get("bucket")!;
+        if (q.get("name")) criteria.nameContains = q.get("name")!;
+        criteria.limit = q.get("limit") ? parseInt(q.get("limit")!, 10) : 100;
+        const items = await codex.browse(criteria);
+        return json(res, 200, items);
+      }
+
       // /api/get/<table>/<hash>
       const getMatch = path.match(/^\/api\/get\/([^/]+)\/(-?\d+)$/);
       if (getMatch) {
@@ -195,6 +215,21 @@ export async function startRestServer(opts: ServeOptions = {}): Promise<void> {
     }
   });
 
+  server.on("error", (err: NodeJS.ErrnoException) => {
+    if (err.code === "EADDRINUSE") {
+      console.error(`Error: Port ${port} is already in use.`);
+      console.error("");
+      console.error("Solutions:");
+      console.error(`  1. Use a different port:  codex serve --port ${port + 1}`);
+      console.error(`  2. Find and kill the process using port ${port}:`);
+      console.error(`     netstat -ano | findstr ":${port}"`);
+      console.error(`     Stop-Process -Id <PID> -Force`);
+      process.exit(1);
+    }
+    console.error(`Server error: ${err.message}`);
+    process.exit(1);
+  });
+
   server.listen(port, host, () => {
     console.log(`Destiny Codex REST API server running at http://${host}:${port}`);
     console.log(`Manifest: ${codex.Meta?.version} (${codex.Meta?.language})`);
@@ -216,6 +251,21 @@ export async function startRestServer(opts: ServeOptions = {}): Promise<void> {
     console.log("");
     console.log("Press Ctrl+C to stop.");
   });
+
+  // Graceful shutdown
+  const shutdown = (signal: string) => {
+    console.log(`\n${signal} received, shutting down...`);
+    server.close(() => {
+      codex.close();
+      console.log("Server closed. Bye!");
+      process.exit(0);
+    });
+    // Force exit after 5s if connections don't close
+    setTimeout(() => process.exit(1), 5000).unref();
+  };
+
+  process.on("SIGINT", () => shutdown("SIGINT"));
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
 }
 
 function json(res: http.ServerResponse, status: number, body: any): void {

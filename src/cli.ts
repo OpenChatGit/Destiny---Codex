@@ -27,6 +27,7 @@ import {
 import { getSqliteIndexes } from "./index-sqlite.js";
 import { filterItems, formatFilterResults, type FilterCriteria } from "./filter.js";
 import { resolveByName, formatComparison } from "./compare.js";
+import { browseItems } from "./browse.js";
 import { rollsByName, formatRolls } from "./rolls.js";
 import { formatPerkWeapons } from "./perksearch.js";
 import { startRestServer } from "./server.js";
@@ -344,6 +345,72 @@ export async function runCli(argv: string[]): Promise<void> {
       }
       const hits = filterItems(db, criteria);
       console.log(formatFilterResults(hits));
+    });
+
+  // ── Browse (enriched item data) ─────────────────────────────────────
+  program
+    .command("browse")
+    .description("Browse items with full display data: icons, stats, damage type, sockets, flavor text. Like 'filter' but enriched.")
+    .option("--tier <name>", "Tier name: Exotic, Legendary, Rare, Uncommon, Common.")
+    .option("--type <name>", "Item type substring: 'Rocket Launcher', 'Helmet', 'Gauntlets'.")
+    .option("--class <name>", "Class: Titan, Hunter, Warlock.")
+    .option("--damage <name>", "Damage: Kinetic, Arc, Solar, Void, Stasis, Strand.")
+    .option("--bucket <name>", "Bucket name: 'Power Weapons', 'Helmet', 'Chest Armor'.")
+    .option("--name <substring>", "Filter by item name substring.")
+    .option("-l, --limit <n>", "Max results.", "50")
+    .addHelpText(
+      "after",
+      "\nExamples:\n  codex browse --tier Exotic --type \"Rocket Launcher\"\n  codex browse --tier Legendary --class Titan --bucket Helmet --limit 10\n  codex browse --damage Solar --type Sidearm",
+    )
+    .action(async (opts: FilterCliOpts) => {
+      const { db } = await loadDb();
+      const criteria: FilterCriteria = { limit: parseInt(opts.limit, 10) };
+      if (opts.tier) criteria.tierTypeName = opts.tier;
+      if (opts.type) criteria.itemTypeDisplayName = opts.type;
+      if (opts.class) criteria.classType = CLASS_NAMES[opts.class.toLowerCase()];
+      if (opts.damage) criteria.damageType = DAMAGE_NAMES[opts.damage.toLowerCase()];
+      if (opts.bucket) criteria.bucketName = opts.bucket;
+      if (opts.name) criteria.nameContains = opts.name;
+      if (opts.class && criteria.classType === undefined) {
+        console.log(`Unknown class "${opts.class}". Use: Titan, Hunter, Warlock.`);
+        return;
+      }
+      if (opts.damage && criteria.damageType === undefined) {
+        console.log(`Unknown damage type "${opts.damage}". Use: Kinetic, Arc, Solar, Void, Stasis, Strand.`);
+        return;
+      }
+      const items = browseItems(db, criteria);
+      if (items.length === 0) {
+        console.log("No items matched the filter criteria.");
+        return;
+      }
+      console.log(`${items.length} item(s) found:`);
+      console.log("=".repeat(60));
+      for (const item of items) {
+        console.log("");
+        console.log(`[${item.tierTypeName ?? "?"}] ${item.name} [${item.hash}]`);
+        console.log(`  type: ${item.itemTypeDisplayName ?? "?"}`);
+        if (item.damageType) {
+          const dmgName = ["", "Kinetic", "Arc", "Solar", "Void", "", "Stasis", "Strand"][item.damageType] ?? String(item.damageType);
+          console.log(`  damage: ${dmgName}`);
+        }
+        if (item.icon) console.log(`  icon: ${item.icon}`);
+        if (item.watermark) console.log(`  watermark: ${item.watermark}`);
+        if (item.screenshot) console.log(`  screenshot: ${item.screenshot}`);
+        if (item.flavorText) console.log(`  flavor: "${item.flavorText.slice(0, 100)}"`);
+        if (item.stats && item.stats.length > 0) {
+          console.log("  stats:");
+          for (const s of item.stats) {
+            console.log(`    ${s.name}: ${s.value}/${s.maximum}`);
+          }
+        }
+        if (item.sockets && item.sockets.length > 0) {
+          console.log("  sockets:");
+          for (const sock of item.sockets) {
+            console.log(`    [${sock.index}] ${sock.category || "(uncategorized)"}: ${sock.perkHashes.length} perk(s)`);
+          }
+        }
+      }
     });
 
   // ── Get ─────────────────────────────────────────────────────────────
