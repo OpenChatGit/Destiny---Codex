@@ -1,8 +1,8 @@
 # Destiny Codex
 
-> Version **0.2.4.022** (07.01.2026)
+> Version **0.3.0.022** (07.01.2026)
 >
-> Turn the Destiny 2 Manifest (gibberish hash-reference JSON) into clean, AI-readable text — with full relationship traversal, structured filtering, and item comparison.
+> Turn the Destiny 2 Manifest (gibberish hash-reference JSON) into clean, AI-readable text — with full relationship traversal, structured filtering, item comparison, and weapon perk-roll extraction.
 
 Destiny Codex is a CLI tool **and** an MCP server. It works for **100% of the manifest** — every definition table is supported generically. Hash references are resolved into human-readable names automatically, in both directions.
 
@@ -39,6 +39,7 @@ node dist/index.js config set-key your_key_here
 | `codex item <name>` | Look up an item by name, show full readable definition. Picks best match automatically. |
 | `codex search <query>` | Search by name (substring, case-insensitive). `-t <table>` to filter, `-l <n>` for limit. |
 | `codex filter [options]` | Structured filter: `--tier`, `--type`, `--class`, `--damage`, `--bucket`, `--stat`. |
+| `codex rolls <name>` | Show all possible perk rolls for a weapon (barrel, mag, traits, mods, catalyst). Answers "what can this weapon roll?" |
 | `codex get <table> <hash>` | Full readable definition by table + hash (all refs resolved inline). |
 | `codex resolve <hash>` | Bare hash → short summary (auto-detects table). |
 | `codex raw <table> <hash>` | Raw JSON of a definition. |
@@ -116,6 +117,18 @@ codex compare Gjallarhorn "Hezen Vengeance"
 codex compare "Deathbringer" "Two-Tailed Fox" "Eyes of Tomorrow"
 ```
 
+### Weapon perk rolls
+```bash
+# What can Code Duello roll?
+codex rolls "Code Duello"
+
+# Exotic perks + catalyst
+codex rolls Gjallarhorn
+
+# Raid weapon rolls
+codex rolls "Hezen Vengeance"
+```
+
 ## MCP Server (for AI tools)
 
 Destiny Codex runs as an [MCP server](https://modelcontextprotocol.io/) over stdio. AI assistants like Devin, Claude, and others can call it directly.
@@ -147,6 +160,7 @@ Add to `.devin/config.json`:
 | `list_tables` | All definition tables. |
 | `search` | Name search with optional table filter. |
 | `filter` | Structured query: itemType, tierType, classType, damageType, bucket, stat ranges. |
+| `rolls` | All possible perk rolls for a weapon (barrel, mag, traits, mods, catalyst). |
 | `get` | Readable text rendering of a definition (all hash refs resolved inline). |
 | `resolve` | Bare hash → short summary. |
 | `relationships` | Outgoing + incoming references (how things connect). |
@@ -195,6 +209,7 @@ src/
 ├── formatter.ts      # Definition → AI-readable text
 ├── relationships.ts  # Reverse index, outgoing-refs, graph traversal
 ├── filter.ts         # Structured filter queries
+├── rolls.ts          # Weapon perk-roll extraction (plug sets, random rolls)
 ├── compare.ts        # Side-by-side item comparison
 ├── search.ts         # Name index for fast substring search
 └── index-sqlite.ts   # SQLite-backed versioned indexes

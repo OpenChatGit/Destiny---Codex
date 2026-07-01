@@ -23,6 +23,7 @@ import {
 import { getSqliteIndexes } from "./index-sqlite.js";
 import { filterItems, formatFilterResults, type FilterCriteria } from "./filter.js";
 import { resolveByName, formatComparison } from "./compare.js";
+import { rollsByName, formatRolls } from "./rolls.js";
 import { DATE_VERSION, SEMVER, FULL_VERSION } from "./version.js";
 
 async function loadDb(): Promise<{ cfg: ManifestConfig; db: DatabaseSync }> {
@@ -43,6 +44,7 @@ export async function runCli(argv: string[]): Promise<void> {
         "Examples:\n" +
         "  codex sync                    # Download the manifest\n" +
         "  codex item Gjallarhorn        # Look up an item by name\n" +
+        "  codex rolls \"Code Duello\"     # What can this weapon roll?\n" +
         "  codex search \"Last Wish\"      # Search by name\n" +
         "  codex filter --tier Exotic --type \"Rocket Launcher\"\n" +
         "  codex compare Gjallarhorn \"Hezen Vengeance\"\n" +
@@ -198,6 +200,25 @@ export async function runCli(argv: string[]): Promise<void> {
         index: getHashIndex(db),
       });
       console.log(result.text);
+    });
+
+  // ── Rolls (what can this weapon roll?) ──────────────────────────────
+  program
+    .command("rolls <name>")
+    .description("Show all possible perk rolls for a weapon. Answers 'what can this weapon roll?'")
+    .addHelpText(
+      "after",
+      "\nExamples:\n  codex rolls \"Code Duello\"\n  codex rolls \"Hezen Vengeance\"\n  codex rolls Gjallarhorn",
+    )
+    .action(async (name: string) => {
+      const { db } = await loadDb();
+      const text = rollsByName(db, name);
+      if (!text) {
+        console.log(`No weapon named "${name}" found.`);
+        console.log("Try: codex search \"" + name + "\"");
+        return;
+      }
+      console.log(text);
     });
 
   // ── Filter ──────────────────────────────────────────────────────────
