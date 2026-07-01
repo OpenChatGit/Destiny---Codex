@@ -1,10 +1,20 @@
 # Destiny Codex
 
-> Version **0.3.0.022** (07.01.2026)
+> Version **0.3.7.0** (07.01.2026)
 >
 > Turn the Destiny 2 Manifest (gibberish hash-reference JSON) into clean, AI-readable text — with full relationship traversal, structured filtering, item comparison, and weapon perk-roll extraction.
 
 Destiny Codex is a CLI tool **and** an MCP server. It works for **100% of the manifest** — every definition table is supported generically. Hash references are resolved into human-readable names automatically, in both directions.
+
+## What's New in 0.3.7.0
+
+- **Weapon Perk Rolls** (`codex rolls`) — Shows all possible perks a weapon can roll, grouped by socket column (barrel, mag, traits, mods, catalyst). Marks each perk as default, random, or fixed.
+- **Reverse Perk Search** (`codex perksearch` / `codex perks`) — Find all weapons that can roll a given perk. The inverse of `rolls`: "which weapons can roll Incandescent?"
+- **Multi-Language Support** — 14 languages via `codex config set-language <lang>`. German, French, Spanish, Japanese, and more.
+- **Auto-Update Check** — Warns when the manifest is older than 7 days (Bungie updates weekly).
+- **Test Suite** — 50 vitest tests covering resolver, formatter, filter, and compare modules.
+- **Formatter Bugfix** — `displayProperties.icon` was not being skipped despite being in the skip list.
+- **PolyForm Noncommercial License** — This software may never be used for commercial purposes.
 
 ## Quick Start
 
@@ -43,6 +53,7 @@ node dist/index.js config set-key your_key_here
 | `codex search <query>` | Search by name (substring, case-insensitive). `-t <table>` to filter, `-l <n>` for limit. |
 | `codex filter [options]` | Structured filter: `--tier`, `--type`, `--class`, `--damage`, `--bucket`, `--stat`. |
 | `codex rolls <name>` | Show all possible perk rolls for a weapon (barrel, mag, traits, mods, catalyst). Answers "what can this weapon roll?" |
+| `codex perksearch <perk>` | Reverse perk search: find all weapons that can roll a given perk. Alias: `perks`. |
 | `codex get <table> <hash>` | Full readable definition by table + hash (all refs resolved inline). |
 | `codex resolve <hash>` | Bare hash → short summary (auto-detects table). |
 | `codex raw <table> <hash>` | Raw JSON of a definition. |
@@ -134,6 +145,18 @@ codex rolls Gjallarhorn
 codex rolls "Hezen Vengeance"
 ```
 
+### Reverse perk search
+```bash
+# Which weapons can roll Incandescent?
+codex perksearch Incandescent
+
+# Which weapons can roll Bait and Switch?
+codex perks "Bait and Switch"
+
+# Which weapons can roll Vorpal Weapon?
+codex perksearch "Vorpal Weapon"
+```
+
 ### Multi-language support
 ```bash
 # Switch to German
@@ -186,6 +209,7 @@ Add to `.devin/config.json`:
 | `search` | Name search with optional table filter. |
 | `filter` | Structured query: itemType, tierType, classType, damageType, bucket, stat ranges. |
 | `rolls` | All possible perk rolls for a weapon (barrel, mag, traits, mods, catalyst). |
+| `perk_search` | Reverse perk search: which weapons can roll a given perk? |
 | `get` | Readable text rendering of a definition (all hash refs resolved inline). |
 | `resolve` | Bare hash → short summary. |
 | `relationships` | Outgoing + incoming references (how things connect). |
@@ -235,6 +259,7 @@ src/
 ├── relationships.ts  # Reverse index, outgoing-refs, graph traversal
 ├── filter.ts         # Structured filter queries
 ├── rolls.ts          # Weapon perk-roll extraction (plug sets, random rolls)
+├── perksearch.ts     # Reverse perk search (which weapons can roll perk X?)
 ├── compare.ts        # Side-by-side item comparison
 ├── search.ts         # Name index for fast substring search
 └── index-sqlite.ts   # SQLite-backed versioned indexes

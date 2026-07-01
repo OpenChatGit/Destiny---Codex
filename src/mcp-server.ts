@@ -22,6 +22,7 @@ import { getSqliteIndexes } from "./index-sqlite.js";
 import { filterItems, formatFilterResults, type FilterCriteria } from "./filter.js";
 import { DATE_VERSION, SEMVER, FULL_VERSION } from "./version.js";
 import { getWeaponRolls, formatRolls, rollsByName } from "./rolls.js";
+import { formatPerkWeapons } from "./perksearch.js";
 
 // We keep a single DB connection + lazy manifest sync for the lifetime of the server.
 let db: DatabaseSync | undefined;
@@ -357,6 +358,27 @@ export async function startMcpServer(cfg: ManifestConfig): Promise<void> {
       } else {
         return { content: [{ type: "text", text: "Provide either 'name' or 'hash'." }] };
       }
+      return { content: [{ type: "text", text }] };
+    },
+  );
+
+  server.registerTool(
+    "perk_search",
+    {
+      description:
+        "Reverse perk search: finds all weapons that can roll a given perk. The inverse of 'rolls'. Answers 'which weapons can roll Incandescent / Bait and Switch / Vorpal Weapon?'. Groups results by tier (Exotic, Legendary, etc). Accepts perk name or hash.",
+      inputSchema: {
+        name: z.string().optional().describe("Perk name to search (e.g. 'Incandescent', 'Bait and Switch'). Preferred over hash."),
+        hash: z.number().int().optional().describe("Numeric hash of the perk plug item (DestinyInventoryItemDefinition). Use if name is ambiguous."),
+      },
+    },
+    async (args) => {
+      const d = await getDb();
+      const key = args.name ?? args.hash;
+      if (key === undefined) {
+        return { content: [{ type: "text", text: "Provide either 'name' or 'hash'." }] };
+      }
+      const text = formatPerkWeapons(d, key);
       return { content: [{ type: "text", text }] };
     },
   );

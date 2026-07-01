@@ -28,6 +28,7 @@ import { getSqliteIndexes } from "./index-sqlite.js";
 import { filterItems, formatFilterResults, type FilterCriteria } from "./filter.js";
 import { resolveByName, formatComparison } from "./compare.js";
 import { rollsByName, formatRolls } from "./rolls.js";
+import { formatPerkWeapons } from "./perksearch.js";
 import { DATE_VERSION, SEMVER, FULL_VERSION } from "./version.js";
 
 async function loadDb(): Promise<{ cfg: ManifestConfig; db: DatabaseSync }> {
@@ -59,6 +60,7 @@ export async function runCli(argv: string[]): Promise<void> {
         "  codex sync                    # Download the manifest\n" +
         "  codex item Gjallarhorn        # Look up an item by name\n" +
         "  codex rolls \"Code Duello\"     # What can this weapon roll?\n" +
+        "  codex perks Incandescent       # Which weapons can roll this perk?\n" +
         "  codex search \"Last Wish\"      # Search by name\n" +
         "  codex filter --tier Exotic --type \"Rocket Launcher\"\n" +
         "  codex compare Gjallarhorn \"Hezen Vengeance\"\n" +
@@ -276,6 +278,21 @@ export async function runCli(argv: string[]): Promise<void> {
         console.log("Try: codex search \"" + name + "\"");
         return;
       }
+      console.log(text);
+    });
+
+  // ── Perk Search (which weapons can roll this perk?) ─────────────────
+  program
+    .command("perksearch <perk>")
+    .alias("perks")
+    .description("Find all weapons that can roll a given perk. Reverse of 'rolls'. E.g. 'codex perksearch Incandescent'.")
+    .addHelpText(
+      "after",
+      "\nExamples:\n  codex perksearch Incandescent\n  codex perks \"Bait and Switch\"\n  codex perksearch \"Vorpal Weapon\"",
+    )
+    .action(async (perk: string) => {
+      const { db } = await loadDb();
+      const text = formatPerkWeapons(db, perk);
       console.log(text);
     });
 

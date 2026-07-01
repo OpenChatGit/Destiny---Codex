@@ -1,6 +1,6 @@
 # Destiny Codex
 
-Version **0.3.0.022** (07.01.2026)
+Version **0.3.7.0** (07.01.2026)
 
 CLI + MCP server that turns the Destiny 2 Manifest (gibberish hash-reference JSON)
 into clean, AI-readable text with full relationship traversal. Works for **100% of
@@ -48,6 +48,7 @@ Supported: `en`, `de`, `es`, `es-mx`, `fr`, `fr-ca`, `it`, `ja`, `ko`, `pl`, `pt
 | `node dist/index.js search "<name>" [-t <table>] [-l <n>]` | Search by name |
 | `node dist/index.js filter [options]` | Structured filter (type/tier/class/damage/stats). E.g. `--tier-name Exotic --type-name "Rocket Launcher"` |
 | `node dist/index.js rolls "<name>"` | Show all possible perk rolls for a weapon (barrel, mag, traits, mods, catalyst). Answers "what can this weapon roll?" |
+| `node dist/index.js perksearch <perk>` | Reverse perk search: find all weapons that can roll a given perk. Alias: `perks`. |
 | `node dist/index.js get <table> <hash> [--no-refs] [--depth <n>]` | Readable rendering of one definition (hash refs resolved inline) |
 | `node dist/index.js resolve <hash>` | Auto-detect table for a bare hash |
 | `node dist/index.js relationships <table> <hash> [-d both\|outgoing\|incoming] [-l <n>]` | Show how a definition connects to others (outgoing refs + reverse incoming refs) |
@@ -64,6 +65,7 @@ Supported: `en`, `de`, `es`, `es-mx`, `fr`, `fr-ca`, `it`, `ja`, `ko`, `pl`, `pt
 - `search` — name search with optional table filter
 - `filter` — structured query: itemType, tierType, classType, damageType, bucket, stat ranges (by name or hash)
 - `rolls` — all possible perk rolls for a weapon (from plug sets + random-roll pools)
+- `perk_search` — reverse perk search: which weapons can roll a given perk?
 - `get` — readable text rendering of a definition (refs resolved)
 - `resolve` — bare hash → short summary
 - `relationships` — outgoing + incoming references (how things connect, both directions)
@@ -78,6 +80,7 @@ Supported: `en`, `de`, `es`, `es-mx`, `fr`, `fr-ca`, `it`, `ja`, `ko`, `pl`, `pt
 - `src/relationships.ts` — reverse index (who references me?), outgoing-ref extraction, graph traversal
 - `src/filter.ts` — structured filter queries (itemType, tier, class, damage, stats)
 - `src/rolls.ts` — weapon perk-roll extraction (plug sets, random-roll pools, reusable plug items)
+- `src/perksearch.ts` — reverse perk search (which weapons can roll perk X?)
 - `src/index-sqlite.ts` — SQLite-backed versioned indexes (forward + name in memory, reverse on-demand) for fast startup
 - `src/search.ts` — name index for fast substring search
 - `src/mcp-server.ts` — MCP server registering all tools
