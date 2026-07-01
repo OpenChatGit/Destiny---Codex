@@ -23,6 +23,7 @@ import {
 import { getSqliteIndexes } from "./index-sqlite.js";
 import { filterItems, formatFilterResults, type FilterCriteria } from "./filter.js";
 import { resolveByName, formatComparison } from "./compare.js";
+import { DATE_VERSION, SEMVER, FULL_VERSION } from "./version.js";
 
 async function loadDb(): Promise<{ cfg: ManifestConfig; db: DatabaseSync }> {
   const cfg = resolveConfig();
@@ -48,7 +49,19 @@ export async function runCli(argv: string[]): Promise<void> {
         "  codex rels DestinyInventoryItemDefinition 1363886209 -d incoming\n" +
         "  codex mcp                     # Start MCP server for AI tools",
     )
-    .version("0.1.0");
+    .version(FULL_VERSION);
+
+  // ── Version ─────────────────────────────────────────────────────────
+  program
+    .command("version")
+    .description("Show version information.")
+    .addHelpText("after", "\nExample:\n  codex version")
+    .action(() => {
+      console.log(`Destiny Codex`);
+      console.log(`version:   ${SEMVER}`);
+      console.log(`date:      ${DATE_VERSION}`);
+      console.log(`full:      ${FULL_VERSION}`);
+    });
 
   // ── Config ──────────────────────────────────────────────────────────
   const config = program.command("config").description("Manage local configuration (API key, language).");

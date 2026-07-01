@@ -1,6 +1,6 @@
 {
   "name": "destiny-codex",
-  "version": "0.1.0",
+  "version": "0.2.4.022",
   "description": "Destiny Codex - MCP server + CLI that turns the Destiny 2 Manifest (gibberish hash-reference JSON) into clean, AI-readable text with full relationship traversal.",
   "type": "module",
   "bin": {

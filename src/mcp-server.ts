@@ -20,6 +20,7 @@ import {
 } from "./relationships.js";
 import { getSqliteIndexes } from "./index-sqlite.js";
 import { filterItems, formatFilterResults, type FilterCriteria } from "./filter.js";
+import { DATE_VERSION, SEMVER, FULL_VERSION } from "./version.js";
 
 // We keep a single DB connection + lazy manifest sync for the lifetime of the server.
 let db: DatabaseSync | undefined;
@@ -38,7 +39,7 @@ export async function startMcpServer(cfg: ManifestConfig): Promise<void> {
   config = cfg;
   const server = new McpServer({
     name: "destiny-codex",
-    version: "0.1.0",
+    version: FULL_VERSION,
   });
 
   server.registerTool(
@@ -53,8 +54,11 @@ export async function startMcpServer(cfg: ManifestConfig): Promise<void> {
       const meta = await ensureManifest(config);
       const tables = listTables(d);
       const text =
+        `Destiny Codex ${FULL_VERSION}\n` +
+        `codex version: ${SEMVER} (${DATE_VERSION})\n` +
+        `---\n` +
         `Destiny 2 Manifest\n` +
-        `version: ${meta.version}\n` +
+        `manifest version: ${meta.version}\n` +
         `language: ${meta.language}\n` +
         `downloadedAt: ${new Date(meta.downloadedAt).toISOString()}\n` +
         `tables: ${tables.length}\n` +

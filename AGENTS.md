@@ -1,5 +1,7 @@
 # Destiny Codex
 
+Version **0.2.4.022** (07.01.2026)
+
 CLI + MCP server that turns the Destiny 2 Manifest (gibberish hash-reference JSON)
 into clean, AI-readable text with full relationship traversal. Works for **100% of
 the manifest** — every definition table is supported generically.

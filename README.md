@@ -1,5 +1,7 @@
 # Destiny Codex
 
+> Version **0.2.4.022** (07.01.2026)
+>
 > Turn the Destiny 2 Manifest (gibberish hash-reference JSON) into clean, AI-readable text — with full relationship traversal, structured filtering, and item comparison.
 
 Destiny Codex is a CLI tool **and** an MCP server. It works for **100% of the manifest** — every definition table is supported generically. Hash references are resolved into human-readable names automatically, in both directions.
