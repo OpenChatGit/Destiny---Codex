@@ -7,3 +7,5 @@ dist/
 index_*/
 index_*.db
 index_*.version
+.devin
+.cursor
