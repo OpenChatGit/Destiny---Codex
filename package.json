@@ -1,10 +1,18 @@
 {
   "name": "destiny-codex",
-  "version": "0.3.7.0",
+  "version": "0.4.0.0",
   "description": "Destiny Codex - MCP server + CLI that turns the Destiny 2 Manifest (gibberish hash-reference JSON) into clean, AI-readable text with full relationship traversal and weapon perk-roll extraction.",
   "type": "module",
   "bin": {
     "codex": "dist/index.js"
+  },
+  "main": "dist/api.js",
+  "types": "dist/api.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/api.d.ts",
+      "import": "./dist/api.js"
+    }
   },
   "scripts": {
     "build": "tsc",

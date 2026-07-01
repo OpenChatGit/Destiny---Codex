@@ -29,6 +29,7 @@ import { filterItems, formatFilterResults, type FilterCriteria } from "./filter.
 import { resolveByName, formatComparison } from "./compare.js";
 import { rollsByName, formatRolls } from "./rolls.js";
 import { formatPerkWeapons } from "./perksearch.js";
+import { startRestServer } from "./server.js";
 import { DATE_VERSION, SEMVER, FULL_VERSION } from "./version.js";
 
 async function loadDb(): Promise<{ cfg: ManifestConfig; db: DatabaseSync }> {
@@ -65,7 +66,8 @@ export async function runCli(argv: string[]): Promise<void> {
         "  codex filter --tier Exotic --type \"Rocket Launcher\"\n" +
         "  codex compare Gjallarhorn \"Hezen Vengeance\"\n" +
         "  codex rels DestinyInventoryItemDefinition 1363886209 -d incoming\n" +
-        "  codex mcp                     # Start MCP server for AI tools",
+        "  codex mcp                     # Start MCP server for AI tools\n" +
+        "  codex serve                   # Start REST API server for apps",
     )
     .version(FULL_VERSION);
 
@@ -509,6 +511,20 @@ export async function runCli(argv: string[]): Promise<void> {
     .action(async () => {
       const cfg = resolveConfig();
       await startMcpServer(cfg);
+    });
+
+  // ── REST API Server ─────────────────────────────────────────────────
+  program
+    .command("serve")
+    .description("Start a REST API HTTP server for app integration (web apps, frontends, backends).")
+    .option("-p, --port <n>", "Port number (default: 3000).", "3000")
+    .option("-h, --host <host>", "Host to bind (default: localhost).", "localhost")
+    .addHelpText(
+      "after",
+      "\nExamples:\n  codex serve                    # http://localhost:3000\n  codex serve --port 8080        # http://localhost:8080\n  codex serve --host 0.0.0.0     # accessible from network\n\nEndpoints:\n  GET /api/search?q=Gjallarhorn\n  GET /api/rolls/Code%20Duello\n  GET /api/perksearch/Incandescent\n  GET /api/filter?tier=Exotic&type=Rocket%20Launcher",
+    )
+    .action(async (opts: { port: string; host: string }) => {
+      await startRestServer({ port: parseInt(opts.port, 10), host: opts.host });
     });
 
   await program.parseAsync(argv);

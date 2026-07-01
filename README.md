@@ -1,13 +1,15 @@
 # Destiny Codex
 
-> Version **0.3.7.0** (07.01.2026)
+> Version **0.4.0.0** (07.01.2026)
 >
 > Turn the Destiny 2 Manifest (gibberish hash-reference JSON) into clean, AI-readable text — with full relationship traversal, structured filtering, item comparison, and weapon perk-roll extraction.
 
 Destiny Codex is a CLI tool **and** an MCP server. It works for **100% of the manifest** — every definition table is supported generically. Hash references are resolved into human-readable names automatically, in both directions.
 
-## What's New in 0.3.7.0
+## What's New in 0.4.0.0
 
+- **Programmatic API** (`DestinyCodex` class) — Import as a library in your own Node.js app: `import { DestinyCodex } from "destiny-codex"`.
+- **REST API Server** (`codex serve`) — HTTP endpoints for web apps and frontends. No Express dependency.
 - **Weapon Perk Rolls** (`codex rolls`) — Shows all possible perks a weapon can roll, grouped by socket column (barrel, mag, traits, mods, catalyst). Marks each perk as default, random, or fixed.
 - **Reverse Perk Search** (`codex perksearch` / `codex perks`) — Find all weapons that can roll a given perk. The inverse of `rolls`: "which weapons can roll Incandescent?"
 - **Multi-Language Support** — 14 languages via `codex config set-language <lang>`. German, French, Spanish, Japanese, and more.
@@ -75,6 +77,7 @@ node dist/index.js config set-key your_key_here
 | `codex info` | Show manifest version + table list. |
 | `codex tables` | List all definition tables. |
 | `codex mcp` | Start the MCP server (for AI tool integration). |
+| `codex serve` | Start REST API HTTP server for app integration. `--port`, `--host`. |
 | `codex config set-key <key>` | Save your Bungie API key. |
 | `codex config set-language <lang>` | Save preferred manifest language (`de`, `fr`, `es`, `ja`, ...). Run `sync` after. |
 | `codex config get-language` | Show currently saved language. |
@@ -216,6 +219,75 @@ Add to `.devin/config.json`:
 | `graph` | Traverse the reference graph N hops deep as a tree. |
 | `raw` | Raw JSON of a definition. |
 
+## App Integration
+
+Destiny Codex can be used as a backend in your own app — without AI, without the CLI.
+
+### Programmatic API (Node.js)
+
+```ts
+import { DestinyCodex } from "destiny-codex";
+
+const codex = new DestinyCodex({ apiKey: "your-bungie-key" });
+await codex.sync();    // download manifest
+await codex.index();   // build indexes
+
+// Search
+const hits = await codex.search("Gjallarhorn");
+
+// Weapon perk rolls
+const rolls = await codex.getRolls("Code Duello");
+
+// Reverse perk search
+const weapons = await codex.findWeaponsWithPerk("Incandescent");
+
+// Filter
+const exotics = await codex.filter({ tierTypeName: "Exotic", itemTypeDisplayName: "Rocket Launcher" });
+
+// Compare
+const comparison = await codex.compare(["Gjallarhorn", "Hezen Vengeance"]);
+
+// Relationships
+const rels = await codex.relationships("DestinyInventoryItemDefinition", 1363886209);
+
+// Raw JSON
+const raw = await codex.raw("DestinyInventoryItemDefinition", 1363886209);
+
+codex.close();
+```
+
+### REST API Server (for web apps / frontends)
+
+```bash
+codex serve --port 3000
+```
+
+All endpoints return JSON with CORS enabled:
+
+| Endpoint | Description |
+|---|---|
+| `GET /health` | Health check |
+| `GET /api/info` | Manifest version, language, tables |
+| `GET /api/tables` | All definition tables |
+| `GET /api/search?q=<name>&table=<t>&limit=<n>` | Search by name |
+| `GET /api/filter?tier=<t>&type=<t>&class=<c>&damage=<d>` | Structured filter |
+| `GET /api/get/<table>/<hash>` | Readable definition |
+| `GET /api/resolve/<hash>` | Bare hash → summary |
+| `GET /api/rolls/<name-or-hash>` | Weapon perk rolls |
+| `GET /api/perksearch/<perk-name-or-hash>` | Weapons that can roll a perk |
+| `GET /api/compare?items=<n1,n2,n3>` | Compare items |
+| `GET /api/relationships/<table>/<hash>?direction=<both\|outgoing\|incoming>` | References |
+| `GET /api/graph/<table>/<hash>?depth=<n>&branch=<n>` | Graph traversal |
+| `GET /api/raw/<table>/<hash>` | Raw JSON |
+
+```bash
+# Examples
+curl http://localhost:3000/api/search?q=Gjallarhorn
+curl http://localhost:3000/api/rolls/Code%20Duello
+curl http://localhost:3000/api/perksearch/Incandescent
+curl "http://localhost:3000/api/filter?tier=Exotic&type=Rocket%20Launcher&limit=5"
+```
+
 ## How It Works
 
 The Destiny 2 Manifest is a SQLite database with ~83 tables of JSON definitions. Every definition is full of hash references — `itemHash: 1363886209`, `statHash: 155624089`, etc. — that are meaningless without looking up the target.
@@ -252,6 +324,8 @@ Destiny Codex:
 src/
 ├── index.ts          # Entry point (loads dotenv, dispatches to CLI)
 ├── cli.ts            # Commander-based CLI
+├── api.ts            # Programmatic API (DestinyCodex class) for app integration
+├── server.ts         # REST API HTTP server (codex serve)
 ├── mcp-server.ts     # MCP server registering all tools
 ├── manifest.ts       # Bungie API client, SQLite cache, version tracking
 ├── resolver.ts       # Hash-reference detection + resolution

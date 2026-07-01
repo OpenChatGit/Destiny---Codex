@@ -1,6 +1,6 @@
 # Destiny Codex
 
-Version **0.3.7.0** (07.01.2026)
+Version **0.4.0.0** (07.01.2026)
 
 CLI + MCP server that turns the Destiny 2 Manifest (gibberish hash-reference JSON)
 into clean, AI-readable text with full relationship traversal. Works for **100% of
@@ -55,6 +55,7 @@ Supported: `en`, `de`, `es`, `es-mx`, `fr`, `fr-ca`, `it`, `ja`, `ko`, `pl`, `pt
 | `node dist/index.js graph <table> <hash> [--depth <n>] [--branch <n>]` | Traverse the reference graph as an indented tree |
 | `node dist/index.js raw <table> <hash>` | Raw JSON of a definition |
 | `node dist/index.js mcp` | Run as MCP server over stdio |
+| `node dist/index.js serve [--port <n>] [--host <h>]` | Start REST API HTTP server for app integration (default: localhost:3000) |
 | `node dist/index.js config set-language <lang>` | Save preferred manifest language (e.g. `de`, `fr`, `en`). Run `sync` after. |
 | `node dist/index.js config get-language` | Show currently saved language preference |
 
@@ -86,6 +87,8 @@ Supported: `en`, `de`, `es`, `es-mx`, `fr`, `fr-ca`, `it`, `ja`, `ko`, `pl`, `pt
 - `src/mcp-server.ts` — MCP server registering all tools
 - `src/cli.ts` — commander-based CLI mirroring the MCP tools
 - `src/index.ts` — entry point (loads dotenv, dispatches to CLI)
+- `src/api.ts` — programmatic API class (`DestinyCodex`) for app integration
+- `src/server.ts` — REST API HTTP server (`codex serve`)
 
 ## Notes
 
