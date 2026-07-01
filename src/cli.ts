@@ -35,6 +35,16 @@ async function loadDb(): Promise<{ cfg: ManifestConfig; db: DatabaseSync }> {
   const meta = await ensureManifest(cfg);
   const db = openDb(meta.sqlitePath);
   getSqliteIndexes(db, cfg.cacheDir, meta.version, meta.language);
+
+  // Auto-update check: warn if manifest is older than 7 days
+  const ageDays = (Date.now() - meta.downloadedAt) / (1000 * 60 * 60 * 24);
+  if (ageDays > 7) {
+    console.error(
+      `⚠ Manifest is ${Math.floor(ageDays)} days old (downloaded ${new Date(meta.downloadedAt).toISOString().slice(0, 10)}). ` +
+      `Run 'codex sync' to update. Bungie updates the manifest weekly (usually Thursdays).`,
+    );
+  }
+
   return { cfg, db };
 }
 

@@ -21,7 +21,7 @@ import {
 import { getSqliteIndexes } from "./index-sqlite.js";
 import { filterItems, formatFilterResults, type FilterCriteria } from "./filter.js";
 import { DATE_VERSION, SEMVER, FULL_VERSION } from "./version.js";
-import { getWeaponRolls, formatRolls } from "./rolls.js";
+import { getWeaponRolls, formatRolls, rollsByName } from "./rolls.js";
 
 // We keep a single DB connection + lazy manifest sync for the lifetime of the server.
 let db: DatabaseSync | undefined;
@@ -33,6 +33,16 @@ async function getDb(): Promise<DatabaseSync> {
   db = openDb(meta.sqlitePath);
   // Preload all indexes (SQLite-backed: forward + name in memory, reverse on-demand).
   getSqliteIndexes(db, config.cacheDir, meta.version, meta.language);
+
+  // Auto-update check: warn if manifest is older than 7 days
+  const ageDays = (Date.now() - meta.downloadedAt) / (1000 * 60 * 60 * 24);
+  if (ageDays > 7) {
+    console.error(
+      `[Destiny Codex] Warning: Manifest is ${Math.floor(ageDays)} days old. ` +
+      `Run 'codex sync' to update. Bungie updates the manifest weekly.`,
+    );
+  }
+
   return db;
 }
 
@@ -327,14 +337,26 @@ export async function startMcpServer(cfg: ManifestConfig): Promise<void> {
     "rolls",
     {
       description:
-        "Shows all possible perk rolls for a weapon. Extracts every perk from plug sets, random-roll pools, and reusable plug items. Groups by socket column (intrinsic trait, weapon perks, mods). Marks each perk as default, random, or fixed. Use this to answer 'what can this weapon roll?'",
+        "Shows all possible perk rolls for a weapon. Extracts every perk from plug sets, random-roll pools, and reusable plug items. Groups by socket column (intrinsic trait, weapon perks, mods). Marks each perk as default, random, or fixed. Use this to answer 'what can this weapon roll?' Accepts either a weapon name (fuzzy-matched, preferred) or a numeric hash.",
       inputSchema: {
-        hash: z.number().int().describe("Hash of the weapon (DestinyInventoryItemDefinition)."),
+        name: z.string().optional().describe("Weapon name to search (e.g. 'Code Duello', 'Gjallarhorn'). Preferred over hash."),
+        hash: z.number().int().optional().describe("Numeric hash of the weapon (DestinyInventoryItemDefinition). Use if name is ambiguous."),
       },
     },
     async (args) => {
       const d = await getDb();
-      const text = formatRolls(d, args.hash);
+      let text: string;
+      if (args.name) {
+        const result = rollsByName(d, args.name);
+        if (!result) {
+          return { content: [{ type: "text", text: `No weapon named "${args.name}" found. Try the search tool first.` }] };
+        }
+        text = result;
+      } else if (args.hash !== undefined) {
+        text = formatRolls(d, args.hash);
+      } else {
+        return { content: [{ type: "text", text: "Provide either 'name' or 'hash'." }] };
+      }
       return { content: [{ type: "text", text }] };
     },
   );

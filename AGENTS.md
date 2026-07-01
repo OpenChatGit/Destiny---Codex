@@ -94,3 +94,5 @@ Supported: `en`, `de`, `es`, `es-mx`, `fr`, `fr-ca`, `it`, `ja`, `ko`, `pl`, `pt
   (any hash → its table). Both are transparent to the caller.
 - `node:sqlite` is used (Node 22+ with `--experimental-sqlite` flag on older
   versions; Node 26 has it stable).
+- Auto-update check: if the manifest is older than 7 days, a warning is printed
+  to stderr on every command. Bungie updates the manifest weekly (usually Thursdays).
