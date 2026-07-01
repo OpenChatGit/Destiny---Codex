@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "destiny-codex": {
+      "command": "node",
+      "args": ["C:/Users/Nicol/Documents/Github/Experiment/dist/index.js", "mcp"],
+      "cwd": "C:/Users/Nicol/Documents/Github/Experiment"
+    }
+  }
+}

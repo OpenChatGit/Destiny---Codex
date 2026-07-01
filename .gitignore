@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.env
+.d2manifest/
+*.sqlite
+*.sqlite.tmp
+index_*/
+index_*.db
+index_*.version
