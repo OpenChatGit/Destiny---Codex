@@ -124,11 +124,10 @@ export function formatDefinition(
     if (typeof value === "object") {
       for (const key of Object.keys(value)) {
         const v = value[key];
-        path.push(key);
         if (shouldSkipField(key, v)) {
-          path.pop();
           continue;
         }
+        path.push(key);
         if (typeof v === "object" && v !== null) {
           push(depth, `${key}:`);
           walk(v, depth + 1);

@@ -26,6 +26,7 @@ Or save it persistently: `node dist/index.js config set-key <key>`
 | Command | Description |
 |---|---|
 | `npm run build` | TypeScript compile (`tsc`) → `dist/` |
+| `npm test` | Run vitest test suite (50 tests, ~0.5s) |
 | `node dist/index.js sync [--force]` | Download/refresh manifest SQLite DB |
 | `node dist/index.js index [--rebuild]` | Build/cache all indexes (forward, name, reverse). Speeds up search/relationships/graph ~3-4x. |
 | `node dist/index.js info` | Cached version + table list with row counts |

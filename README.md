@@ -217,4 +217,9 @@ src/
 
 ## License
 
-MIT
+PolyForm Noncommercial 1.0.0 — see [LICENSE](LICENSE).
+
+This software may **never** be used for commercial purposes. Personal use,
+research, education, charitable organizations, and government institutions
+are permitted. See the [full license text](https://polyformproject.org/licenses/noncommercial/1.0.0)
+for details.
