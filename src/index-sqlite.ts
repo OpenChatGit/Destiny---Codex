@@ -1,7 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
-import { listTables, getTableSchema, iterateTable } from "./manifest.js";
+import { listTables, getTableSchema, iterateTable, getTableSet } from "./manifest.js";
 import {
   extractNameDesc,
   isHashField,
@@ -10,6 +10,7 @@ import {
 } from "./resolver.js";
 import type { NameIndex, SearchHit } from "./search.js";
 import type { ReverseIndex, IncomingRef } from "./relationships.js";
+import { extractSocketPerks, type PlugSetResolver } from "./sockets.js";
 
 /**
  * SQLite-backed index cache. Stores all three indexes (forward, name, reverse)
@@ -153,6 +154,15 @@ export function buildAndCacheSqliteIndex(
       path TEXT NOT NULL,
       field TEXT NOT NULL
     );
+    CREATE TABLE weapon_perks (
+      perk_hash INTEGER NOT NULL,
+      weapon_hash INTEGER NOT NULL,
+      weapon_name TEXT NOT NULL,
+      tier_type_name TEXT,
+      item_type_display_name TEXT,
+      socket_index INTEGER NOT NULL,
+      is_random INTEGER NOT NULL
+    );
   `);
 
   const insertForward = db.prepare("INSERT OR REPLACE INTO forward (hash, table_name) VALUES (?, ?)");
@@ -162,15 +172,32 @@ export function buildAndCacheSqliteIndex(
   const insertReverse = db.prepare(
     "INSERT INTO reverse_index (target_hash, source_table, source_hash, source_name, path, field) VALUES (?, ?, ?, ?, ?, ?)",
   );
+  const insertWeaponPerk = db.prepare(
+    "INSERT INTO weapon_perks (perk_hash, weapon_hash, weapon_name, tier_type_name, item_type_display_name, socket_index, is_random) VALUES (?, ?, ?, ?, ?, ?, ?)",
+  );
 
   const forwardMap = new Map<number, string>();
   const byName = new Map<string, SearchHit[]>();
   const allHits: SearchHit[] = [];
 
+  // Pre-pass: plug-set contents, needed to expand weapon sockets. Plug sets
+  // sort after inventory items in listTables order, so we must read them first.
+  const plugSetContents = new Map<number, number[]>();
+  if (getTableSet(manifestDb).has("DestinyPlugSetDefinition")) {
+    for (const row of iterateTable(manifestDb, "DestinyPlugSetDefinition")) {
+      const items = (row.json.reusablePlugItems ?? [])
+        .map((p: { plugItemHash?: number }) => p.plugItemHash)
+        .filter((h: unknown): h is number => typeof h === "number" && h !== 0);
+      plugSetContents.set(row.hash, items);
+    }
+  }
+  const resolvePlugSet: PlugSetResolver = (h) => plugSetContents.get(h) ?? [];
+
   db.exec("BEGIN TRANSACTION");
 
   for (const t of listTables(manifestDb)) {
     const schema = getTableSchema(manifestDb, t.name);
+    const isItemTable = t.name === "DestinyInventoryItemDefinition";
     for (const row of iterateTable(manifestDb, t.name)) {
       // forward index (only numeric-key tables)
       if (!schema.isTextKey) {
@@ -206,6 +233,27 @@ export function buildAndCacheSqliteIndex(
           insertReverse.run(r.hash, t.name, row.hash, name ?? null, r.path, r.field);
         }
       }
+
+      // weapon_perks: one row per (perk, weapon), first socket a perk appears in wins
+      const def = row.json;
+      if (isItemTable && name && def.sockets?.socketEntries && (def.itemType === 3 || def.itemTypeDisplayName)) {
+        const recorded = new Set<number>();
+        for (const socket of extractSocketPerks(def, resolvePlugSet)) {
+          for (const perk of socket.perks) {
+            if (recorded.has(perk.plugItemHash)) continue;
+            recorded.add(perk.plugItemHash);
+            insertWeaponPerk.run(
+              perk.plugItemHash,
+              row.hash,
+              name,
+              def.inventory?.tierTypeName ?? null,
+              def.itemTypeDisplayName ?? null,
+              socket.index,
+              perk.isRandom ? 1 : 0,
+            );
+          }
+        }
+      }
     }
   }
 
@@ -216,6 +264,7 @@ export function buildAndCacheSqliteIndex(
     CREATE INDEX idx_forward_hash ON forward(hash);
     CREATE INDEX idx_name_lower ON name_index(name_lower);
     CREATE INDEX idx_reverse_target ON reverse_index(target_hash);
+    CREATE INDEX idx_weapon_perks_perk ON weapon_perks(perk_hash);
   `);
 
   // Write version marker
@@ -301,6 +350,49 @@ export function getSqliteIndexes(
   anyDb.__d2ReverseIndex = store.reverse;
   anyDb.__sqliteIndexStore = store;
   return store;
+}
+
+export interface WeaponPerkRow {
+  weaponHash: number;
+  weaponName: string;
+  tierTypeName?: string;
+  itemTypeDisplayName?: string;
+  socketIndex: number;
+  isRandom: boolean;
+}
+
+/**
+ * Fast lookup: which weapons can roll a perk? Uses the precomputed
+ * weapon_perks table in the index DB. Returns undefined if this manifest's
+ * index cache predates the table (caller falls back to a full scan;
+ * `codex index --rebuild` upgrades the cache).
+ */
+export function queryWeaponsWithPerk(manifestDb: DatabaseSync, perkHash: number): WeaponPerkRow[] | undefined {
+  const store: SqliteIndexStore | undefined = (manifestDb as any).__sqliteIndexStore;
+  if (!store) return undefined;
+  const hasTable = store.db.prepare(
+    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='weapon_perks'",
+  ).get();
+  if (!hasTable) return undefined;
+  const rows = store.db.prepare(
+    "SELECT weapon_hash, weapon_name, tier_type_name, item_type_display_name, socket_index, is_random " +
+    "FROM weapon_perks WHERE perk_hash = ? ORDER BY weapon_name",
+  ).all(perkHash) as {
+    weapon_hash: number;
+    weapon_name: string;
+    tier_type_name: string | null;
+    item_type_display_name: string | null;
+    socket_index: number;
+    is_random: number;
+  }[];
+  return rows.map((r) => ({
+    weaponHash: r.weapon_hash,
+    weaponName: r.weapon_name,
+    tierTypeName: r.tier_type_name ?? undefined,
+    itemTypeDisplayName: r.item_type_display_name ?? undefined,
+    socketIndex: r.socket_index,
+    isRandom: r.is_random === 1,
+  }));
 }
 
 /**

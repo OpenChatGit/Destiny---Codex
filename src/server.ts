@@ -24,6 +24,7 @@
 
 import http from "node:http";
 import { DestinyCodex } from "./api.js";
+import { CLASS_NAME_TO_TYPE, DAMAGE_NAME_TO_TYPE } from "./enums.js";
 
 export interface ServeOptions {
   port?: number;
@@ -91,19 +92,7 @@ export async function startRestServer(opts: ServeOptions = {}): Promise<void> {
       }
 
       if (path === "/api/filter") {
-        const criteria: Record<string, any> = {};
-        if (q.get("tier")) criteria.tierTypeName = q.get("tier")!;
-        if (q.get("type")) criteria.itemTypeDisplayName = q.get("type")!;
-        if (q.get("class")) {
-          const classMap: Record<string, number> = { Titan: 0, Hunter: 1, Warlock: 2 };
-          criteria.classType = classMap[q.get("class")!];
-        }
-        if (q.get("damage")) {
-          const dmgMap: Record<string, number> = { Kinetic: 1, Arc: 2, Solar: 3, Void: 4, Stasis: 6, Strand: 7 };
-          criteria.damageType = dmgMap[q.get("damage")!];
-        }
-        if (q.get("bucket")) criteria.bucketName = q.get("bucket")!;
-        if (q.get("name")) criteria.nameContains = q.get("name")!;
+        const criteria = filterCriteriaFromQuery(q);
         if (q.get("limit")) criteria.limit = parseInt(q.get("limit")!, 10);
         const hits = await codex.filter(criteria);
         return json(res, 200, hits);
@@ -111,19 +100,7 @@ export async function startRestServer(opts: ServeOptions = {}): Promise<void> {
 
       // /api/browse — like filter but returns full display data (icons, stats, sockets)
       if (path === "/api/browse") {
-        const criteria: Record<string, any> = {};
-        if (q.get("tier")) criteria.tierTypeName = q.get("tier")!;
-        if (q.get("type")) criteria.itemTypeDisplayName = q.get("type")!;
-        if (q.get("class")) {
-          const classMap: Record<string, number> = { Titan: 0, Hunter: 1, Warlock: 2 };
-          criteria.classType = classMap[q.get("class")!];
-        }
-        if (q.get("damage")) {
-          const dmgMap: Record<string, number> = { Kinetic: 1, Arc: 2, Solar: 3, Void: 4, Stasis: 6, Strand: 7 };
-          criteria.damageType = dmgMap[q.get("damage")!];
-        }
-        if (q.get("bucket")) criteria.bucketName = q.get("bucket")!;
-        if (q.get("name")) criteria.nameContains = q.get("name")!;
+        const criteria = filterCriteriaFromQuery(q);
         criteria.limit = q.get("limit") ? parseInt(q.get("limit")!, 10) : 100;
         const items = await codex.browse(criteria);
         return json(res, 200, items);
@@ -211,7 +188,10 @@ export async function startRestServer(opts: ServeOptions = {}): Promise<void> {
       // 404
       return json(res, 404, { error: `Not found: ${path}` });
     } catch (err: any) {
-      return json(res, 500, { error: err?.message ?? "Internal server error" });
+      const message: string = err?.message ?? "Internal server error";
+      // Invalid input (e.g. unknown table name) is the client's fault, not ours.
+      const status = message.startsWith("Unknown table") ? 400 : 500;
+      return json(res, status, { error: message });
     }
   });
 
@@ -271,4 +251,16 @@ export async function startRestServer(opts: ServeOptions = {}): Promise<void> {
 function json(res: http.ServerResponse, status: number, body: any): void {
   res.writeHead(status, { "Content-Type": "application/json" });
   res.end(JSON.stringify(body, null, 2));
+}
+
+/** Shared query-string parsing for /api/filter and /api/browse. */
+function filterCriteriaFromQuery(q: URLSearchParams): Record<string, any> {
+  const criteria: Record<string, any> = {};
+  if (q.get("tier")) criteria.tierTypeName = q.get("tier")!;
+  if (q.get("type")) criteria.itemTypeDisplayName = q.get("type")!;
+  if (q.get("class")) criteria.classType = CLASS_NAME_TO_TYPE[q.get("class")!.toLowerCase()];
+  if (q.get("damage")) criteria.damageType = DAMAGE_NAME_TO_TYPE[q.get("damage")!.toLowerCase()];
+  if (q.get("bucket")) criteria.bucketName = q.get("bucket")!;
+  if (q.get("name")) criteria.nameContains = q.get("name")!;
+  return criteria;
 }

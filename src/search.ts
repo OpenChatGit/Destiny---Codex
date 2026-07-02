@@ -67,9 +67,8 @@ export function searchByName(
   const idx = getNameIndex(db);
   const candidates: SearchHit[] = [];
 
-  // exact + prefix via map keys (fast)
   for (const [key, hits] of idx.byName) {
-    if (key === q || key.startsWith(q) || key.includes(q)) {
+    if (key.includes(q)) {
       for (const h of hits) {
         if (opts.table && h.table !== opts.table) continue;
         candidates.push(h);

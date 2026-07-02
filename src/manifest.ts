@@ -1,4 +1,4 @@
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync, type StatementSync } from "node:sqlite";
 import { existsSync, mkdirSync, rmSync, renameSync, statSync, writeFileSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -12,6 +12,8 @@ export interface ManifestMeta {
   mobileWorldContentPath: string; // for the chosen language
   language: string;
   downloadedAt: number; // epoch ms
+  /** Last time the version was confirmed against Bungie (epoch ms). */
+  lastCheckedAt?: number;
   sqlitePath: string;
 }
 
@@ -103,9 +105,33 @@ export function isSupportedLanguage(lang: string): boolean {
   return (SUPPORTED_LANGUAGES as readonly string[]).includes(lang.toLowerCase());
 }
 
+/** Default timeout for Bungie API metadata calls (ms). */
+const API_TIMEOUT_MS = 15_000;
+/** Default timeout for the (large) manifest DB download (ms). */
+const DOWNLOAD_TIMEOUT_MS = 120_000;
+
+/**
+ * fetch with an AbortController-based timeout so a hung Bungie endpoint can't
+ * block a command forever.
+ */
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (err) {
+    if ((err as Error).name === "AbortError") {
+      throw new Error(`Request to ${url} timed out after ${timeoutMs} ms.`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function bungieGet(path: string, apiKey: string): Promise<any> {
   const url = path.startsWith("http") ? path : BUNGIE_ROOT + path;
-  const res = await fetch(url, { headers: { "X-API-Key": apiKey } });
+  const res = await fetchWithTimeout(url, { headers: { "X-API-Key": apiKey } }, API_TIMEOUT_MS);
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`Bungie API ${res.status} for ${url}: ${body.slice(0, 300)}`);
@@ -117,18 +143,27 @@ async function bungieGet(path: string, apiKey: string): Promise<any> {
   return json.Response ?? json;
 }
 
-function metaFilePath(cacheDir: string): string {
-  return join(cacheDir, "meta.json");
+function metaFilePath(cacheDir: string, language: string): string {
+  return join(cacheDir, `meta_${language}.json`);
 }
 
-function readMeta(cacheDir: string): ManifestMeta | undefined {
-  const file = metaFilePath(cacheDir);
-  if (!existsSync(file)) return undefined;
-  return JSON.parse(readFileSync(file, "utf8")) as ManifestMeta;
+function readMeta(cacheDir: string, language: string): ManifestMeta | undefined {
+  const file = metaFilePath(cacheDir, language);
+  if (existsSync(file)) {
+    return JSON.parse(readFileSync(file, "utf8")) as ManifestMeta;
+  }
+  // Legacy single-file meta.json (pre-0.5.1): only usable if it was written
+  // for the same language, otherwise ignore it.
+  const legacy = join(cacheDir, "meta.json");
+  if (existsSync(legacy)) {
+    const meta = JSON.parse(readFileSync(legacy, "utf8")) as ManifestMeta;
+    if (meta.language === language) return meta;
+  }
+  return undefined;
 }
 
 function writeMeta(cacheDir: string, meta: ManifestMeta): void {
-  writeFileSync(metaFilePath(cacheDir), JSON.stringify(meta, null, 2));
+  writeFileSync(metaFilePath(cacheDir, meta.language), JSON.stringify(meta, null, 2));
 }
 
 /**
@@ -145,16 +180,47 @@ export async function fetchRemoteVersion(config: ManifestConfig): Promise<{ vers
   return { version, mobileWorldContentPath: path };
 }
 
+/** How long a successful remote version check stays fresh (1 hour). */
+const REMOTE_CHECK_TTL_MS = 60 * 60 * 1000;
+
 /**
  * Ensures a local cached SQLite copy of the manifest exists and is up to date.
  * Returns metadata about the loaded manifest. Does NOT keep a DB connection open.
+ *
+ * To keep commands fast and usable offline, the remote version is only checked
+ * when the cache is missing, `checkRemote`/`force` is set, or the last check is
+ * older than 1 hour. If the check fails but a cache exists, the cache is used.
  */
-export async function ensureManifest(config: ManifestConfig, opts?: { force?: boolean }): Promise<ManifestMeta> {
+export async function ensureManifest(
+  config: ManifestConfig,
+  opts?: { force?: boolean; checkRemote?: boolean },
+): Promise<ManifestMeta> {
   mkdirSync(config.cacheDir, { recursive: true });
-  const existing = readMeta(config.cacheDir);
-  const remote = await fetchRemoteVersion(config);
-
+  const existing = readMeta(config.cacheDir, config.language);
   const sqlitePath = join(config.cacheDir, `world_${config.language}.sqlite`);
+
+  const cacheUsable = !!existing && existing.language === config.language && existsSync(sqlitePath);
+  const checkIsFresh =
+    cacheUsable && Date.now() - (existing!.lastCheckedAt ?? existing!.downloadedAt) < REMOTE_CHECK_TTL_MS;
+
+  if (cacheUsable && checkIsFresh && !opts?.force && !opts?.checkRemote) {
+    return { ...existing!, sqlitePath };
+  }
+
+  let remote: { version: string; mobileWorldContentPath: string };
+  try {
+    remote = await fetchRemoteVersion(config);
+  } catch (err) {
+    if (cacheUsable && !opts?.force) {
+      console.error(
+        `[Destiny Codex] Warning: could not reach Bungie (${(err as Error).message.slice(0, 120)}). ` +
+        `Using cached manifest ${existing!.version}.`,
+      );
+      return { ...existing!, sqlitePath };
+    }
+    throw err;
+  }
+
   const needsDownload =
     opts?.force ||
     !existing ||
@@ -165,18 +231,7 @@ export async function ensureManifest(config: ManifestConfig, opts?: { force?: bo
   if (needsDownload) {
     const url = BUNGIE_ROOT + remote.mobileWorldContentPath;
     const tmpPath = sqlitePath + ".tmp";
-    const res = await fetch(url, { headers: { "X-API-Key": config.apiKey } });
-    if (!res.ok || !res.body) {
-      throw new Error(`Failed to download manifest DB: ${res.status} ${res.statusText}`);
-    }
-    const buf = Buffer.from(await res.arrayBuffer());
-    // Bungie's mobileWorldContentPaths are ZIP archives containing a single
-    // uncompressed SQLite file (named "<something>.content"). Extract it.
-    const zip = new AdmZip(buf);
-    const entry = zip.getEntries()[0];
-    if (!entry) throw new Error("Manifest ZIP archive is empty.");
-    const unzipped = entry.getData();
-    writeFileSync(tmpPath, unzipped);
+    await downloadManifestDb(url, config.apiKey, tmpPath);
     if (existsSync(sqlitePath)) rmSync(sqlitePath);
     renameSync(tmpPath, sqlitePath);
 
@@ -185,13 +240,61 @@ export async function ensureManifest(config: ManifestConfig, opts?: { force?: bo
       mobileWorldContentPath: remote.mobileWorldContentPath,
       language: config.language ?? "en",
       downloadedAt: Date.now(),
+      lastCheckedAt: Date.now(),
       sqlitePath,
     };
     writeMeta(config.cacheDir, meta);
     return meta;
   }
 
-  return { ...existing!, sqlitePath };
+  // Cache is current; record that we just confirmed the version.
+  const refreshed: ManifestMeta = { ...existing!, lastCheckedAt: Date.now(), sqlitePath };
+  writeMeta(config.cacheDir, refreshed);
+  return refreshed;
+}
+
+/** SQLite files begin with this 16-byte magic header. */
+const SQLITE_MAGIC = "SQLite format 3\u0000";
+
+/**
+ * Downloads and unzips the manifest DB to `destPath`, with retries and a
+ * basic integrity check (valid ZIP + SQLite magic header). Throws only after
+ * all attempts fail, leaving no partial file at `destPath`.
+ */
+async function downloadManifestDb(
+  url: string,
+  apiKey: string,
+  destPath: string,
+  attempts = 3,
+): Promise<void> {
+  let lastErr: Error | undefined;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      const res = await fetchWithTimeout(url, { headers: { "X-API-Key": apiKey } }, DOWNLOAD_TIMEOUT_MS);
+      if (!res.ok || !res.body) {
+        throw new Error(`Failed to download manifest DB: ${res.status} ${res.statusText}`);
+      }
+      const buf = Buffer.from(await res.arrayBuffer());
+      // Bungie's mobileWorldContentPaths are ZIP archives containing a single
+      // uncompressed SQLite file (named "<something>.content"). Extract it.
+      const zip = new AdmZip(buf);
+      const entry = zip.getEntries()[0];
+      if (!entry) throw new Error("Manifest ZIP archive is empty.");
+      const unzipped = entry.getData();
+      if (unzipped.length < SQLITE_MAGIC.length || unzipped.toString("utf8", 0, SQLITE_MAGIC.length) !== SQLITE_MAGIC) {
+        throw new Error("Downloaded file is not a valid SQLite database (bad header).");
+      }
+      writeFileSync(destPath, unzipped);
+      return;
+    } catch (err) {
+      lastErr = err as Error;
+      if (existsSync(destPath)) rmSync(destPath);
+      if (attempt < attempts) {
+        console.error(`[Destiny Codex] Download attempt ${attempt}/${attempts} failed (${lastErr.message}). Retrying...`);
+      }
+    }
+  }
+  throw new Error(`Manifest download failed after ${attempts} attempts: ${lastErr?.message}`);
 }
 
 export function openDb(sqlitePath: string): DatabaseSync {
@@ -215,6 +318,47 @@ export function listTables(db: DatabaseSync): { name: string; rowCount: number }
 }
 
 const SCHEMA_CACHE = new WeakMap<DatabaseSync, Map<string, { keyCol: string; isTextKey: boolean }>>();
+const TABLE_SET_CACHE = new WeakMap<DatabaseSync, Set<string>>();
+const STMT_CACHE = new WeakMap<DatabaseSync, Map<string, StatementSync>>();
+
+/**
+ * Returns the set of valid definition table names for a DB (cached).
+ * Table names are interpolated into SQL, so everything user-supplied must be
+ * checked against this set first.
+ */
+export function getTableSet(db: DatabaseSync): Set<string> {
+  let set = TABLE_SET_CACHE.get(db);
+  if (!set) {
+    const rows = db.prepare(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'Destiny%'",
+    ).all() as { name: string }[];
+    set = new Set(rows.map((r) => r.name));
+    TABLE_SET_CACHE.set(db, set);
+  }
+  return set;
+}
+
+/** Throws if `table` is not a real definition table in this manifest. */
+function assertValidTable(db: DatabaseSync, table: string): void {
+  if (!getTableSet(db).has(table)) {
+    throw new Error(`Unknown table "${table}". Use 'codex tables' to list valid tables.`);
+  }
+}
+
+/** Prepares (and caches) a statement per db. Table names must be validated by the caller. */
+function cachedPrepare(db: DatabaseSync, sql: string): StatementSync {
+  let cache = STMT_CACHE.get(db);
+  if (!cache) {
+    cache = new Map();
+    STMT_CACHE.set(db, cache);
+  }
+  let stmt = cache.get(sql);
+  if (!stmt) {
+    stmt = db.prepare(sql);
+    cache.set(sql, stmt);
+  }
+  return stmt;
+}
 
 /**
  * Returns the primary-key column info for a table. Most Destiny tables use
@@ -256,8 +400,9 @@ export function hashToId(hash: number): number {
  * ignored and `key` (a string) is expected via `getRawDefinitionByKey`.
  */
 export function getRawDefinition(db: DatabaseSync, table: string, hash: number): any | undefined {
+  assertValidTable(db, table);
   const schema = getTableSchema(db, table);
-  const stmt = db.prepare(`SELECT json FROM "${table}" WHERE ${schema.keyCol} = ?`);
+  const stmt = cachedPrepare(db, `SELECT json FROM "${table}" WHERE ${schema.keyCol} = ?`);
   const keyValue = schema.isTextKey ? String(hash) : hashToId(hash);
   const row = stmt.get(keyValue) as { json: string } | undefined;
   if (!row) return undefined;
@@ -269,7 +414,8 @@ export function getRawDefinition(db: DatabaseSync, table: string, hash: number):
  * DestinyHistoricalStatsDefinition).
  */
 export function getRawDefinitionByKey(db: DatabaseSync, table: string, key: string): any | undefined {
-  const stmt = db.prepare(`SELECT json FROM "${table}" WHERE key = ?`);
+  assertValidTable(db, table);
+  const stmt = cachedPrepare(db, `SELECT json FROM "${table}" WHERE key = ?`);
   const row = stmt.get(key) as { json: string } | undefined;
   if (!row) return undefined;
   return JSON.parse(row.json);
@@ -284,6 +430,7 @@ export function* iterateTable(
   db: DatabaseSync,
   table: string,
 ): Generator<{ hash: number; key?: string; json: any }> {
+  assertValidTable(db, table);
   const schema = getTableSchema(db, table);
   const stmt = db.prepare(`SELECT ${schema.keyCol} AS k, json FROM "${table}"`);
   for (const row of stmt.iterate() as Iterable<{ k: number | string; json: string }>) {

@@ -138,9 +138,9 @@ export class DestinyCodex {
     this.queryCache.clear();
   }
 
-  /** Download/refresh the manifest. Returns manifest metadata. */
+  /** Download/refresh the manifest. Always checks Bungie for a new version. */
   async sync(force = false): Promise<ManifestMeta> {
-    this.meta = await ensureManifest(this.config, { force });
+    this.meta = await ensureManifest(this.config, { force, checkRemote: true });
     return this.meta;
   }
 
@@ -180,22 +180,26 @@ export class DestinyCodex {
   /** Search definitions by name (substring, case-insensitive). */
   async search(query: string, opts?: { table?: string; limit?: number }): Promise<SearchHit[]> {
     await this.ready();
-    return searchByName(this.db_(), query, opts);
+    const key = `search:${query.toLowerCase()}:${opts?.table ?? ""}:${opts?.limit ?? ""}`;
+    return this.cached(key, () => searchByName(this.db_(), query, opts));
   }
 
   /** Get a readable text rendering of a definition by table + hash. */
   async get(table: string, hash: number, opts?: FormatOptions): Promise<FormatResult> {
     await this.ready();
-    const d = this.db_();
-    const def = getRawDefinition(d, table, hash);
-    if (!def) throw new Error(`No definition found: ${table} ${hash}`);
-    return formatDefinition(d, table, hash, def, { index: this.hashIndex, ...opts });
+    const key = `get:${table}:${hash}:${opts?.resolveRefs ?? ""}:${opts?.maxDepth ?? ""}`;
+    return this.cached(key, () => {
+      const d = this.db_();
+      const def = getRawDefinition(d, table, hash);
+      if (!def) throw new Error(`No definition found: ${table} ${hash}`);
+      return formatDefinition(d, table, hash, def, { index: this.hashIndex, ...opts });
+    });
   }
 
   /** Resolve a bare hash to its definition (auto-detects table). */
   async resolve(hash: number): Promise<{ hash: number; table: string; name?: string; found: boolean }> {
     await this.ready();
-    return resolveHash(this.db_(), hash, undefined, this.hashIndex);
+    return this.cached(`resolve:${hash}`, () => resolveHash(this.db_(), hash, undefined, this.hashIndex));
   }
 
   /** Look up an item by name (fuzzy-matched). Returns the raw definition. */
@@ -258,13 +262,16 @@ export class DestinyCodex {
   /** Compare 2+ items side-by-side. */
   async compare(names: string[]): Promise<string> {
     await this.ready();
-    const d = this.db_();
-    const items: CompareItem[] = [];
-    for (const name of names) {
-      const item = resolveByName(d, name, "DestinyInventoryItemDefinition");
-      if (item) items.push(item);
-    }
-    return formatComparison(d, items);
+    const key = `compare:${names.map((n) => n.toLowerCase()).join("|")}`;
+    return this.cached(key, () => {
+      const d = this.db_();
+      const items: CompareItem[] = [];
+      for (const name of names) {
+        const item = resolveByName(d, name, "DestinyInventoryItemDefinition");
+        if (item) items.push(item);
+      }
+      return formatComparison(d, items);
+    });
   }
 
   /** Show outgoing + incoming references for a definition. */
@@ -273,21 +280,25 @@ export class DestinyCodex {
     incoming: IncomingRef[];
   }> {
     await this.ready();
-    const d = this.db_();
-    const def = getRawDefinition(d, table, hash);
-    let outgoing: OutgoingRef[] = [];
-    if (direction !== "incoming" && def) {
-      const rawRefs = extractOutgoingRefs(def, this.hashIndex);
-      outgoing = resolveOutgoingRefs(d, rawRefs);
-    }
-    const incoming = direction !== "outgoing" ? findIncomingRefs(d, hash) : [];
-    return { outgoing, incoming };
+    return this.cached(`rels:${table}:${hash}:${direction}`, () => {
+      const d = this.db_();
+      const def = getRawDefinition(d, table, hash);
+      let outgoing: OutgoingRef[] = [];
+      if (direction !== "incoming" && def) {
+        const rawRefs = extractOutgoingRefs(def, this.hashIndex);
+        outgoing = resolveOutgoingRefs(d, rawRefs);
+      }
+      const incoming = direction !== "outgoing" ? findIncomingRefs(d, hash) : [];
+      return { outgoing, incoming };
+    });
   }
 
   /** Traverse the reference graph as a tree. */
   async graph(table: string, hash: number, depth = 3, branch = 10): Promise<string> {
     await this.ready();
-    return renderGraph(this.db_(), table, hash, { maxDepth: depth, maxBranch: branch });
+    return this.cached(`graph:${table}:${hash}:${depth}:${branch}`, () =>
+      renderGraph(this.db_(), table, hash, { maxDepth: depth, maxBranch: branch }),
+    );
   }
 
   /** Get raw JSON of a definition. */

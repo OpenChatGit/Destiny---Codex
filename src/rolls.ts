@@ -2,6 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { getRawDefinition } from "./manifest.js";
 import { extractNameDesc } from "./resolver.js";
 import { resolveByName } from "./compare.js";
+import { extractSocketPerks, dbPlugSetResolver, socketCategoryNames } from "./sockets.js";
 
 /**
  * Extracts all possible perk rolls for a weapon from its socket definitions.
@@ -52,97 +53,41 @@ export function getWeaponRolls(db: DatabaseSync, hash: number): { name: string; 
   const def = getRawDefinition(db, "DestinyInventoryItemDefinition", hash);
   if (!def) return undefined;
   const { name } = extractNameDesc(def);
-  const sockets = def.sockets;
-  if (!sockets) return { name: name ?? "(unnamed)", slots: [] };
+  if (!def.sockets) return { name: name ?? "(unnamed)", slots: [] };
 
-  // Build category lookup: socketIndex -> category name
-  const categoryByIndex = new Map<number, string>();
-  for (const cat of sockets.socketCategories ?? []) {
-    const catDef = getRawDefinition(db, "DestinySocketCategoryDefinition", cat.socketCategoryHash);
-    const catName = catDef?.displayProperties?.name ?? "(unknown category)";
-    for (const idx of cat.socketIndexes ?? []) {
-      categoryByIndex.set(idx, catName);
-    }
-  }
-
+  const categoryByIndex = socketCategoryNames(db, def);
+  const socketPerks = extractSocketPerks(def, dbPlugSetResolver(db));
   const slots: PerkSlot[] = [];
-  const socketEntries = sockets.socketEntries ?? [];
 
-  for (let i = 0; i < socketEntries.length; i++) {
-    const sock = socketEntries[i];
-    const category = categoryByIndex.get(i) ?? "(uncategorized)";
+  for (const socket of socketPerks) {
+    const category = categoryByIndex.get(socket.index) ?? "(uncategorized)";
 
-    // Skip cosmetic and mod slots - we only want perks
-    const catLower = category.toLowerCase();
-    if (catLower.includes("cosmetic") || catLower.includes("cosmetics")) continue;
+    // Skip cosmetic slots - we only want perks
+    if (category.toLowerCase().includes("cosmetic")) continue;
 
-    const socketTypeDef = sock.socketTypeHash
-      ? getRawDefinition(db, "DestinySocketTypeDefinition", sock.socketTypeHash)
+    const socketTypeDef = socket.socketTypeHash
+      ? getRawDefinition(db, "DestinySocketTypeDefinition", socket.socketTypeHash)
       : undefined;
     const socketTypeName = socketTypeDef?.displayProperties?.name;
 
     const perks: PerkOption[] = [];
     const seenNames = new Set<string>();
-    let isRandom = false;
-
-    // 1. Default perk (singleInitialItemHash)
-    if (sock.singleInitialItemHash && sock.singleInitialItemHash !== 0) {
-      const perk = resolvePerk(db, sock.singleInitialItemHash, true, false);
+    for (const ref of socket.perks) {
+      const perk = resolvePerk(db, ref.plugItemHash, ref.isDefault, ref.isRandom);
       if (perk && !seenNames.has(perk.name)) {
         perks.push(perk);
         seenNames.add(perk.name);
       }
     }
 
-    // 2. Random-roll plug set (randomizedPlugSetHash) - the main perk pool
-    if (sock.randomizedPlugSetHash && sock.randomizedPlugSetHash !== 0) {
-      isRandom = true;
-      const plugSet = getRawDefinition(db, "DestinyPlugSetDefinition", sock.randomizedPlugSetHash);
-      for (const p of plugSet?.reusablePlugItems ?? []) {
-        if (p.plugItemHash) {
-          const perk = resolvePerk(db, p.plugItemHash, false, true);
-          if (perk && !seenNames.has(perk.name)) {
-            perks.push(perk);
-            seenNames.add(perk.name);
-          }
-        }
-      }
-    }
-
-    // 3. Reusable plug set (reusablePlugSetHash) - fixed pool (mods, masterworks)
-    if (sock.reusablePlugSetHash && sock.reusablePlugSetHash !== 0) {
-      const plugSet = getRawDefinition(db, "DestinyPlugSetDefinition", sock.reusablePlugSetHash);
-      for (const p of plugSet?.reusablePlugItems ?? []) {
-        if (p.plugItemHash) {
-          const perk = resolvePerk(db, p.plugItemHash, false, false);
-          if (perk && !seenNames.has(perk.name)) {
-            perks.push(perk);
-            seenNames.add(perk.name);
-          }
-        }
-      }
-    }
-
-    // 4. Direct reusable plug items
-    for (const p of sock.reusablePlugItems ?? []) {
-      if (p.plugItemHash) {
-        const perk = resolvePerk(db, p.plugItemHash, false, false);
-        if (perk && !seenNames.has(perk.name)) {
-          perks.push(perk);
-          seenNames.add(perk.name);
-        }
-      }
-    }
-
-    // Skip empty slots
     if (perks.length === 0) continue;
 
     slots.push({
-      index: i,
+      index: socket.index,
       category,
       socketTypeName,
       perks,
-      isRandom,
+      isRandom: socket.isRandom,
     });
   }
 

@@ -28,10 +28,11 @@ import { getSqliteIndexes } from "./index-sqlite.js";
 import { filterItems, formatFilterResults, type FilterCriteria } from "./filter.js";
 import { resolveByName, formatComparison } from "./compare.js";
 import { browseItems } from "./browse.js";
-import { rollsByName, formatRolls } from "./rolls.js";
-import { formatPerkWeapons } from "./perksearch.js";
+import { rollsByName, formatRolls, getWeaponRolls } from "./rolls.js";
+import { formatPerkWeapons, findWeaponsWithPerk } from "./perksearch.js";
 import { startRestServer } from "./server.js";
 import { DATE_VERSION, SEMVER, FULL_VERSION } from "./version.js";
+import { CLASS_NAME_TO_TYPE, DAMAGE_NAME_TO_TYPE, damageName } from "./enums.js";
 
 async function loadDb(): Promise<{ cfg: ManifestConfig; db: DatabaseSync }> {
   const cfg = resolveConfig();
@@ -150,7 +151,7 @@ export async function runCli(argv: string[]): Promise<void> {
       const cfg = resolveConfig(lang ? { language: lang } : undefined);
       const remote = await fetchRemoteVersion(cfg);
       console.log(`Remote manifest version: ${remote.version}`);
-      const meta = await ensureManifest(cfg, { force: opts.force });
+      const meta = await ensureManifest(cfg, { force: opts.force, checkRemote: true });
       console.log(`Cached at: ${meta.sqlitePath}`);
       console.log(`Language: ${meta.language}`);
       console.log(`Downloaded: ${new Date(meta.downloadedAt).toISOString()}`);
@@ -218,13 +219,18 @@ export async function runCli(argv: string[]): Promise<void> {
     .description("Search definitions by name (case-insensitive substring). Returns table, hash, name, description.")
     .option("-t, --table <table>", "Filter by table name, e.g. DestinyInventoryItemDefinition.")
     .option("-l, --limit <n>", "Max results.", "25")
+    .option("--json", "Output raw JSON instead of formatted text.")
     .addHelpText(
       "after",
       "\nExamples:\n  codex search Gjallarhorn\n  codex search \"Last Wish\" -t DestinyActivityDefinition\n  codex find \"Wolfpack Rounds\" -l 5",
     )
-    .action(async (query: string, opts: { table?: string; limit: string }) => {
+    .action(async (query: string, opts: { table?: string; limit: string; json?: boolean }) => {
       const { db } = await loadDb();
       const hits = searchByName(db, query, { table: opts.table, limit: parseInt(opts.limit, 10) });
+      if (opts.json) {
+        console.log(JSON.stringify(hits, null, 2));
+        return;
+      }
       if (hits.length === 0) {
         console.log(`No matches for "${query}".`);
         return;
@@ -269,12 +275,23 @@ export async function runCli(argv: string[]): Promise<void> {
   program
     .command("rolls <name>")
     .description("Show all possible perk rolls for a weapon. Answers 'what can this weapon roll?'")
+    .option("--json", "Output raw JSON instead of formatted text.")
     .addHelpText(
       "after",
       "\nExamples:\n  codex rolls \"Code Duello\"\n  codex rolls \"Hezen Vengeance\"\n  codex rolls Gjallarhorn",
     )
-    .action(async (name: string) => {
+    .action(async (name: string, opts: { json?: boolean }) => {
       const { db } = await loadDb();
+      if (opts.json) {
+        const item = resolveByName(db, name, "DestinyInventoryItemDefinition");
+        const rolls = item ? getWeaponRolls(db, item.hash) : undefined;
+        if (!rolls) {
+          console.log(JSON.stringify({ error: `No weapon named "${name}" found.` }, null, 2));
+          return;
+        }
+        console.log(JSON.stringify(rolls, null, 2));
+        return;
+      }
       const text = rollsByName(db, name);
       if (!text) {
         console.log(`No weapon named "${name}" found.`);
@@ -289,14 +306,19 @@ export async function runCli(argv: string[]): Promise<void> {
     .command("perksearch <perk>")
     .alias("perks")
     .description("Find all weapons that can roll a given perk. Reverse of 'rolls'. E.g. 'codex perksearch Incandescent'.")
+    .option("--json", "Output raw JSON instead of formatted text.")
     .addHelpText(
       "after",
       "\nExamples:\n  codex perksearch Incandescent\n  codex perks \"Bait and Switch\"\n  codex perksearch \"Vorpal Weapon\"",
     )
-    .action(async (perk: string) => {
+    .action(async (perk: string, opts: { json?: boolean }) => {
       const { db } = await loadDb();
-      const text = formatPerkWeapons(db, perk);
-      console.log(text);
+      if (opts.json) {
+        const result = findWeaponsWithPerk(db, perk);
+        console.log(JSON.stringify(result ?? { error: `No perk named "${perk}" found.` }, null, 2));
+        return;
+      }
+      console.log(formatPerkWeapons(db, perk));
     });
 
   // ── Filter ──────────────────────────────────────────────────────────
@@ -311,6 +333,7 @@ export async function runCli(argv: string[]): Promise<void> {
     .option("--stat <name>:<min>[:<max>]>", "Stat filter (repeatable): 'Blast Radius:80' or 'Stability:50:70'.", collectStats, [])
     .option("--name <substring>", "Filter by item name substring.")
     .option("-l, --limit <n>", "Max results.", "50")
+    .option("--json", "Output raw JSON instead of formatted text.")
     .addHelpText(
       "after",
       "\nExamples:\n  codex filter --tier Exotic --type \"Rocket Launcher\"\n  codex filter --tier Legendary --class Titan --bucket Helmet\n  codex filter --type \"Rocket Launcher\" --stat \"Blast Radius:90\"\n  codex filter --damage Solar --type \"Sidearm\" --limit 10",
@@ -320,8 +343,8 @@ export async function runCli(argv: string[]): Promise<void> {
       const criteria: FilterCriteria = { limit: parseInt(opts.limit, 10) };
       if (opts.tier) criteria.tierTypeName = opts.tier;
       if (opts.type) criteria.itemTypeDisplayName = opts.type;
-      if (opts.class) criteria.classType = CLASS_NAMES[opts.class.toLowerCase()];
-      if (opts.damage) criteria.damageType = DAMAGE_NAMES[opts.damage.toLowerCase()];
+      if (opts.class) criteria.classType = CLASS_NAME_TO_TYPE[opts.class.toLowerCase()];
+      if (opts.damage) criteria.damageType = DAMAGE_NAME_TO_TYPE[opts.damage.toLowerCase()];
       if (opts.bucket) criteria.bucketName = opts.bucket;
       if (opts.name) criteria.nameContains = opts.name;
       if (opts.stat && opts.stat.length > 0) {
@@ -344,6 +367,10 @@ export async function runCli(argv: string[]): Promise<void> {
         return;
       }
       const hits = filterItems(db, criteria);
+      if (opts.json) {
+        console.log(JSON.stringify(hits, null, 2));
+        return;
+      }
       console.log(formatFilterResults(hits));
     });
 
@@ -358,6 +385,7 @@ export async function runCli(argv: string[]): Promise<void> {
     .option("--bucket <name>", "Bucket name: 'Power Weapons', 'Helmet', 'Chest Armor'.")
     .option("--name <substring>", "Filter by item name substring.")
     .option("-l, --limit <n>", "Max results.", "50")
+    .option("--json", "Output raw JSON instead of formatted text.")
     .addHelpText(
       "after",
       "\nExamples:\n  codex browse --tier Exotic --type \"Rocket Launcher\"\n  codex browse --tier Legendary --class Titan --bucket Helmet --limit 10\n  codex browse --damage Solar --type Sidearm",
@@ -367,8 +395,8 @@ export async function runCli(argv: string[]): Promise<void> {
       const criteria: FilterCriteria = { limit: parseInt(opts.limit, 10) };
       if (opts.tier) criteria.tierTypeName = opts.tier;
       if (opts.type) criteria.itemTypeDisplayName = opts.type;
-      if (opts.class) criteria.classType = CLASS_NAMES[opts.class.toLowerCase()];
-      if (opts.damage) criteria.damageType = DAMAGE_NAMES[opts.damage.toLowerCase()];
+      if (opts.class) criteria.classType = CLASS_NAME_TO_TYPE[opts.class.toLowerCase()];
+      if (opts.damage) criteria.damageType = DAMAGE_NAME_TO_TYPE[opts.damage.toLowerCase()];
       if (opts.bucket) criteria.bucketName = opts.bucket;
       if (opts.name) criteria.nameContains = opts.name;
       if (opts.class && criteria.classType === undefined) {
@@ -380,6 +408,10 @@ export async function runCli(argv: string[]): Promise<void> {
         return;
       }
       const items = browseItems(db, criteria);
+      if (opts.json) {
+        console.log(JSON.stringify(items, null, 2));
+        return;
+      }
       if (items.length === 0) {
         console.log("No items matched the filter criteria.");
         return;
@@ -391,8 +423,7 @@ export async function runCli(argv: string[]): Promise<void> {
         console.log(`[${item.tierTypeName ?? "?"}] ${item.name} [${item.hash}]`);
         console.log(`  type: ${item.itemTypeDisplayName ?? "?"}`);
         if (item.damageType) {
-          const dmgName = ["", "Kinetic", "Arc", "Solar", "Void", "", "Stasis", "Strand"][item.damageType] ?? String(item.damageType);
-          console.log(`  damage: ${dmgName}`);
+          console.log(`  damage: ${damageName(item.damageType)}`);
         }
         if (item.icon) console.log(`  icon: ${item.icon}`);
         if (item.watermark) console.log(`  watermark: ${item.watermark}`);
@@ -599,11 +630,6 @@ export async function runCli(argv: string[]): Promise<void> {
 
 // ── Helpers for filter CLI ─────────────────────────────────────────────
 
-const CLASS_NAMES: Record<string, number> = { titan: 0, hunter: 1, warlock: 2 };
-const DAMAGE_NAMES: Record<string, number> = {
-  kinetic: 1, arc: 2, solar: 3, void: 4, stasis: 6, strand: 7,
-};
-
 interface FilterCliOpts {
   tier?: string;
   type?: string;
@@ -613,6 +639,7 @@ interface FilterCliOpts {
   stat: string[];
   name?: string;
   limit: string;
+  json?: boolean;
 }
 
 function collectStats(value: string, previous: string[]): string[] {

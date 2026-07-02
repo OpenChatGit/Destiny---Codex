@@ -3,6 +3,7 @@ import { getRawDefinition } from "./manifest.js";
 import { extractNameDesc, getHashIndex } from "./resolver.js";
 import { searchByName } from "./search.js";
 import { formatDefinition } from "./formatter.js";
+import { className, damageName } from "./enums.js";
 
 /**
  * Compare two or more inventory items side-by-side.
@@ -77,8 +78,8 @@ export function formatComparison(db: DatabaseSync, items: CompareItem[]): string
   const props: [string, (d: any) => string][] = [
     ["Tier", (d) => d.inventory?.tierTypeName ?? "-"],
     ["Type", (d) => d.itemTypeDisplayName ?? "-"],
-    ["Class", (d) => ["Titan", "Hunter", "Warlock", "Any"][d.classType ?? 3]],
-    ["Damage", (d) => ["", "Kinetic", "Arc", "Solar", "Void", "", "Stasis", "Strand"][d.defaultDamageType ?? 0] ?? "?"],
+    ["Class", (d) => className(d.classType ?? 3)],
+    ["Damage", (d) => damageName(d.defaultDamageType ?? 0)],
     ["Bucket", (d) => {
       const b = d.inventory?.bucketTypeHash;
       if (!b) return "-";

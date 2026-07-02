@@ -25,6 +25,7 @@ import { getWeaponRolls, formatRolls, rollsByName } from "./rolls.js";
 import { formatPerkWeapons } from "./perksearch.js";
 import { resolveByName, formatComparison } from "./compare.js";
 import { browseItems } from "./browse.js";
+import { damageName } from "./enums.js";
 
 // We keep a single DB connection + lazy manifest sync for the lifetime of the server.
 let db: DatabaseSync | undefined;
@@ -432,7 +433,7 @@ export async function startMcpServer(cfg: ManifestConfig): Promise<void> {
         lines.push("");
         lines.push(`[${item.tierTypeName ?? "?"}] ${item.name} [${item.hash}]`);
         lines.push(`  type: ${item.itemTypeDisplayName ?? "?"}`);
-        if (item.damageType) lines.push(`  damage: ${["", "Kinetic", "Arc", "Solar", "Void", "", "Stasis", "Strand"][item.damageType] ?? item.damageType}`);
+        if (item.damageType) lines.push(`  damage: ${damageName(item.damageType)}`);
         if (item.icon) lines.push(`  icon: ${item.icon}`);
         if (item.watermark) lines.push(`  watermark: ${item.watermark}`);
         if (item.screenshot) lines.push(`  screenshot: ${item.screenshot}`);

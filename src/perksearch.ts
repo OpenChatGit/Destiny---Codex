@@ -2,6 +2,8 @@ import { DatabaseSync } from "node:sqlite";
 import { iterateTable, getRawDefinition } from "./manifest.js";
 import { extractNameDesc } from "./resolver.js";
 import { resolveByName } from "./compare.js";
+import { queryWeaponsWithPerk } from "./index-sqlite.js";
+import { extractSocketPerks, dbPlugSetResolver } from "./sockets.js";
 
 /**
  * Reverse perk search: finds all weapons that can roll a given perk.
@@ -56,26 +58,35 @@ export function findWeaponsWithPerk(
     perkName = item.name;
   }
 
-  // 2. Find all plug sets that contain this perk hash
-  const matchingPlugSets = new Set<number>();
-  for (const row of iterateTable(db, "DestinyPlugSetDefinition")) {
-    const plugSet = row.json;
-    const has = (plugSet.reusablePlugItems ?? []).some(
-      (p: { plugItemHash?: number }) => p.plugItemHash === perkHash,
-    );
-    if (has) matchingPlugSets.add(row.hash);
+  // Fast path: precomputed weapon_perks table in the index DB.
+  const indexed = queryWeaponsWithPerk(db, perkHash);
+  if (indexed) {
+    const weapons: PerkWeaponMatch[] = [];
+    const seenNames = new Set<string>();
+    for (const r of indexed) {
+      if (seenNames.has(r.weaponName)) continue; // skip Adept/crafted duplicates
+      seenNames.add(r.weaponName);
+      weapons.push({
+        hash: r.weaponHash,
+        name: r.weaponName,
+        tierTypeName: r.tierTypeName,
+        itemTypeDisplayName: r.itemTypeDisplayName,
+        socketIndex: r.socketIndex,
+        isRandom: r.isRandom,
+      });
+    }
+    return { perkName, perkHash, weapons };
   }
 
-  // 3. Also collect weapons that list the perk directly in reusablePlugItems
-  // Scan all inventory items that have sockets
+  // Slow path (index cache predates weapon_perks): full manifest scan using
+  // the shared socket-perk extraction.
+  const resolvePlugSet = dbPlugSetResolver(db);
   const weapons: PerkWeaponMatch[] = [];
   const seenNames = new Set<string>();
 
   for (const row of iterateTable(db, "DestinyInventoryItemDefinition")) {
     const def = row.json;
-    // Only look at items with sockets (weapons, armor)
     if (!def.sockets?.socketEntries) continue;
-    // Only items with a name
     const { name } = extractNameDesc(def);
     if (!name) continue;
     // Only weapons (itemType 3) or items with itemTypeDisplayName
@@ -83,56 +94,23 @@ export function findWeaponsWithPerk(
     // Deduplicate by name (skip Adept/crafted duplicates)
     if (seenNames.has(name)) continue;
 
-    const sockets = def.sockets.socketEntries;
-    for (let i = 0; i < sockets.length; i++) {
-      const sock = sockets[i];
-      if (!sock) continue;
-
-      let found = false;
-      let isRandom = false;
-
-      // Check randomizedPlugSetHash
-      if (sock.randomizedPlugSetHash && matchingPlugSets.has(sock.randomizedPlugSetHash)) {
-        found = true;
-        isRandom = true;
-      }
-
-      // Check reusablePlugSetHash
-      if (!found && sock.reusablePlugSetHash && matchingPlugSets.has(sock.reusablePlugSetHash)) {
-        found = true;
-      }
-
-      // Check direct reusablePlugItems
-      if (!found && sock.reusablePlugItems) {
-        for (const p of sock.reusablePlugItems) {
-          if (p.plugItemHash === perkHash) {
-            found = true;
-            break;
-          }
-        }
-      }
-
-      // Check singleInitialItemHash (fixed perk)
-      if (!found && sock.singleInitialItemHash === perkHash) {
-        found = true;
-      }
-
-      if (found) {
+    for (const socket of extractSocketPerks(def, resolvePlugSet)) {
+      const match = socket.perks.find((p) => p.plugItemHash === perkHash);
+      if (match) {
         seenNames.add(name);
         weapons.push({
           hash: row.hash,
           name,
           tierTypeName: def.inventory?.tierTypeName,
           itemTypeDisplayName: def.itemTypeDisplayName,
-          socketIndex: i,
-          isRandom,
+          socketIndex: socket.index,
+          isRandom: match.isRandom,
         });
         break; // Only report the first matching socket per weapon
       }
     }
   }
 
-  // Sort by name
   weapons.sort((a, b) => a.name.localeCompare(b.name));
 
   return { perkName, perkHash, weapons };

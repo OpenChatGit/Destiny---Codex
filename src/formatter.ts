@@ -47,7 +47,15 @@ const ENUM_HINTS: Record<string, Record<number, string>> = {
     18: "Ghost", 19: "Consumable", 20: "Finisher", 21: "ClanBanner", 22: "Mod",
     23: "Dummy", 24: "Package", 25: "Bounty", 26: "Glimmer", 27: "Silver",
   },
-  itemSubType: { 0: "None", 1: "Helmet", 2: "Gauntlets", 4: "ChestArmor", 8: "LegArmor", 16: "ClassArmor", 32: "Weapon", 64: "Subclass" },
+  // DestinyItemSubType enum (Bungie.net API). Deprecated values omitted.
+  itemSubType: {
+    0: "None", 4: "Auto Rifle", 5: "Shotgun", 6: "Machine Gun", 7: "Hand Cannon",
+    8: "Rocket Launcher", 9: "Fusion Rifle", 10: "Sniper Rifle", 11: "Pulse Rifle",
+    12: "Scout Rifle", 14: "Sidearm", 15: "Sword", 16: "Mask", 17: "Shader", 18: "Ornament",
+    19: "Linear Fusion Rifle", 20: "Grenade Launcher", 21: "Submachine Gun", 22: "Trace Rifle",
+    23: "Helmet Armor", 24: "Gauntlets Armor", 25: "Chest Armor", 26: "Leg Armor",
+    27: "Class Armor", 28: "Bow", 30: "Glaive",
+  },
 };
 
 export interface FormatResult {

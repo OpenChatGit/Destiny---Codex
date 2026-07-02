@@ -1,6 +1,6 @@
 # Destiny Codex
 
-Version **0.5.0.0** (07.01.2026)
+Version **0.5.1.0** (02.07.2026)
 
 CLI + MCP server that turns the Destiny 2 Manifest (gibberish hash-reference JSON)
 into clean, AI-readable text with full relationship traversal. Works for **100% of
@@ -40,7 +40,7 @@ Supported: `en`, `de`, `es`, `es-mx`, `fr`, `fr-ca`, `it`, `ja`, `ko`, `pl`, `pt
 | Command | Description |
 |---|---|
 | `npm run build` | TypeScript compile (`tsc`) → `dist/` |
-| `npm test` | Run vitest test suite (50 tests, ~0.5s) |
+| `npm test` | Run vitest test suite (74 tests, ~0.8s; uses an in-memory fixture manifest, no network) |
 | `node dist/index.js sync [--force]` | Download/refresh manifest SQLite DB |
 | `node dist/index.js index [--rebuild]` | Build/cache all indexes (forward, name, reverse). Speeds up search/relationships/graph ~3-4x. |
 | `node dist/index.js info` | Cached version + table list with row counts |
@@ -90,7 +90,9 @@ Supported: `en`, `de`, `es`, `es-mx`, `fr`, `fr-ca`, `it`, `ja`, `ko`, `pl`, `pt
 - `src/rolls.ts` — weapon perk-roll extraction (plug sets, random-roll pools, reusable plug items)
 - `src/perksearch.ts` — reverse perk search (which weapons can roll perk X?)
 - `src/compare.ts` — side-by-side item comparison (stats, perks, properties in columns)
-- `src/index-sqlite.ts` — SQLite-backed versioned indexes (forward + name in memory, reverse on-demand) for fast startup
+- `src/index-sqlite.ts` — SQLite-backed versioned indexes (forward + name in memory, reverse + weapon_perks on-demand) for fast startup
+- `src/enums.ts` — central class/damage enum <-> name mappings shared by CLI, MCP, REST, formatters
+- `src/sockets.ts` — shared weapon-socket / perk extraction used by `rolls`, `perksearch`, and the `weapon_perks` index build
 - `src/search.ts` — name index for fast substring search
 - `src/mcp-server.ts` — MCP server registering all tools
 - `src/cli.ts` — commander-based CLI mirroring the MCP tools
@@ -100,9 +102,10 @@ Supported: `en`, `de`, `es`, `es-mx`, `fr`, `fr-ca`, `it`, `ja`, `ko`, `pl`, `pt
 
 ## Notes
 
-- Manifest DB is cached at `~/.d2manifest/world_<lang>.sqlite` (~70 MB for `en`, one file per language).
+- Manifest DB is cached at `~/.d2manifest/world_<lang>.sqlite` (~70 MB for `en`, one file per language). Metadata is per-language (`meta_<lang>.json`).
+- The remote manifest version is only checked when the cache is missing, on `codex sync`, or when the last check is older than 1 hour. If Bungie is unreachable, the cached manifest is used (offline mode).
 - Language preference is persisted at `~/.d2manifest/language`. Override with `D2_LANGUAGE` env var or `--language` flag on `sync`.
-- Index DB is cached at `~/.d2manifest/index_<version>.db` (~420 MB, rebuilt on manifest version change).
+- Index DB is cached at `~/.d2manifest/index_<version>.db` (~420 MB, rebuilt on manifest version change). It includes a `weapon_perks` table that powers fast `perksearch`; caches built before 0.5.1.0 fall back to a full scan until `codex index --rebuild` is run.
 - Hash references are resolved two ways: (1) field-name heuristic
   (`itemHash` → `DestinyInventoryItemDefinition`), (2) reverse index fallback
   (any hash → its table). Both are transparent to the caller.

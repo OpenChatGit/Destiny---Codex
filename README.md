@@ -1,12 +1,39 @@
 # Destiny Codex
 
-> Version **0.5.0.0** (07.01.2026)
+> Version **0.5.1.0** (02.07.2026)
 >
 > Turn the Destiny 2 Manifest (gibberish hash-reference JSON) into clean, AI-readable text — with full relationship traversal, structured filtering, item comparison, and weapon perk-roll extraction.
 
 Destiny Codex is a CLI tool **and** an MCP server. It works for **100% of the manifest** — every definition table is supported generically. Hash references are resolved into human-readable names automatically, in both directions.
 
 ## Changelog
+
+### 0.5.1.0 (02.07.2026)
+
+**Features:**
+- **Offline mode** — The remote manifest version is only checked when the cache is missing or the last check is older than 1 hour. If Bungie is unreachable, the cached manifest is used with a warning. Commands are faster and work without internet.
+- **Fast reverse perk search** — `codex perksearch` now uses a precomputed `weapon_perks` table in the index DB instead of scanning all ~40k items per query. Run `codex index --rebuild` once to upgrade an existing index cache (older caches fall back to the full scan automatically).
+- **`--json` output** — `search`, `filter`, `browse`, `rolls`, and `perksearch` accept `--json` for raw structured output (scripting without the REST server).
+- **Per-language manifest metadata** — Switching languages back and forth no longer re-downloads the manifest if the cached DB is still current.
+- **Network hardening** — All Bungie calls now have timeouts (15 s metadata, 120 s download); the manifest download retries up to 3× and verifies the SQLite header before replacing the cache.
+- **CI** — GitHub Actions workflow (build + tests on every push/PR).
+
+**Bug Fixes:**
+- **Stat name filters** — Stat names (`--stat "Swing Speed:50"`, `statsByName`) are now resolved against the manifest's own `DestinyStatDefinition` table instead of a hardcoded list that contained wrong hashes for Accuracy, Charge Rate, Swing Speed, Guard Endurance, and others. This also makes stat filters work in every manifest language.
+- **`itemSubType` labels** — The formatter used a wrong enum (e.g. `1: Helmet`); replaced with the correct `DestinyItemSubType` values (Hand Cannon, Sword, Glaive, ...).
+- **Type declarations** — `dist/api.d.ts` is now actually emitted (`declaration: true`); library consumers get TypeScript types.
+- **`zod` dependency** — Declared explicitly instead of relying on the MCP SDK's transitive copy.
+- **Filter completeness** — `filter` no longer stops scanning early (`limit * 3`), which could silently drop matching items depending on table order.
+- **Table name validation** — Table names from CLI/MCP/REST input are validated against the manifest before being used in SQL. The REST server returns 400 for unknown tables.
+
+**Improvements:**
+- **Shared socket logic** — `rolls`, `perksearch`, and the `weapon_perks` index build now share one `sockets.ts` perk-extraction implementation instead of three copies that could drift apart.
+- Prepared-statement cache for definition lookups (hot paths like `rolls`, `browse`, `graph` no longer re-prepare identical SQL thousands of times).
+- The API query cache now covers `search`, `get`, `resolve`, `relationships`, `graph`, and `compare` (previously only `filter`/`browse`/`rolls`/`perksearch`).
+- Central `enums.ts` for class/damage names; `filter` output now shows `class=Titan`/`dmg=Solar` instead of numeric codes; REST `class`/`damage` params are case-insensitive.
+- **Tests** — Expanded from 50 to 74, including a fixture in-memory manifest DB that covers `filter`, `rolls`, `perksearch`, `sockets`, `relationships`, and the table-validation guard. Version consistency between `package.json` and `src/version.ts` is enforced by a test.
+
+---
 
 ### 0.5.0.0 (07.01.2026)
 
@@ -351,10 +378,11 @@ Destiny Codex:
 | `codex rels` (with index) | ~1.2s |
 | `codex graph` (with index) | ~1.2s |
 | `codex filter` | ~0.3s |
+| `codex perksearch` (with index) | ~1s |
 
 ## Requirements
 
-- Node.js 22+ (uses built-in `node:sqlite`)
+- Node.js **22.5+** (uses built-in `node:sqlite`). On Node 22/23 it may require the `--experimental-sqlite` flag; on Node 24+ it is stable.
 - A Bungie.net API key (free, get one at https://www.bungie.net/en/Application)
 
 ## Project Structure
@@ -376,7 +404,9 @@ src/
 ├── perksearch.ts     # Reverse perk search (which weapons can roll perk X?)
 ├── compare.ts        # Side-by-side item comparison
 ├── search.ts         # Name index for fast substring search
-└── index-sqlite.ts   # SQLite-backed versioned indexes
+├── sockets.ts        # Shared weapon-socket / perk extraction
+├── enums.ts          # Central class/damage enum <-> name mappings
+└── index-sqlite.ts   # SQLite-backed versioned indexes (incl. weapon_perks)
 ```
 
 ## License

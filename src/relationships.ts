@@ -61,8 +61,16 @@ export interface ReverseIndex {
  */
 export function getReverseIndex(db: DatabaseSync): ReverseIndex {
   const anyDb = db as any;
+  // Fast path: SQLite-backed reverse index attached by getSqliteIndexes().
   if (anyDb.__d2ReverseIndex) return anyDb.__d2ReverseIndex;
   if (anyDb[REVERSE_INDEX_KEY]) return anyDb[REVERSE_INDEX_KEY];
+  // Fallback: build the full reverse index in memory. This is expensive
+  // (scans every table, high RAM) and should only happen when the SQLite index
+  // cache is missing. Normal usage always goes through the fast path above.
+  console.error(
+    "[Destiny Codex] Building reverse index in memory (no index cache found). " +
+    "Run 'codex index' to avoid this.",
+  );
   const byTarget = new Map<number, IncomingRef[]>();
   const fwd = getHashIndex(db);
 
@@ -255,7 +263,12 @@ export function buildGraph(
         count++;
         continue;
       }
-      const targetDef = getRawDefinition(db, targetTable, r.hash);
+      let targetDef: any;
+      try {
+        targetDef = getRawDefinition(db, targetTable, r.hash);
+      } catch {
+        targetDef = undefined; // heuristic table guess may not exist in this manifest
+      }
       const targetName = targetDef ? extractNameDesc(targetDef).name : undefined;
       const targetNode: GraphNode = { table: targetTable, hash: r.hash, name: targetName };
       const key = `${targetTable}:${r.hash}`;

@@ -61,8 +61,8 @@ describe("formatFilterResults", () => {
       },
     ];
     const text = formatFilterResults(hits);
-    expect(text).toContain("class=0");
-    expect(text).toContain("dmg=2");
+    expect(text).toContain("class=Titan");
+    expect(text).toContain("dmg=Arc");
   });
 
   it("hides class for classType 3 (Any)", () => {
