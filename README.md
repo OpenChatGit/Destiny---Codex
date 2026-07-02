@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/MCP-Banner.png" alt="Destiny Codex" width="100%">
+</p>
+
 # Destiny Codex
 
 > Version **0.5.1.0** (02.07.2026)
