@@ -48,21 +48,6 @@ Destiny Codex is a CLI tool **and** an MCP server. It works for **100% of the ma
 
 ---
 
-### 0.4.0.0 (07.01.2026)
-
-**Features:**
-- **Programmatic API** (`DestinyCodex` class) — Import as a library in your own Node.js app: `import { DestinyCodex } from "destiny-codex"`.
-- **REST API Server** (`codex serve`) — HTTP endpoints for web apps and frontends. No Express dependency.
-- **Weapon Perk Rolls** (`codex rolls`) — Shows all possible perks a weapon can roll, grouped by socket column (barrel, mag, traits, mods, catalyst). Marks each perk as default, random, or fixed.
-- **Reverse Perk Search** (`codex perksearch` / `codex perks`) — Find all weapons that can roll a given perk. The inverse of `rolls`: "which weapons can roll Incandescent?"
-- **Multi-Language Support** — 14 languages via `codex config set-language <lang>`. German, French, Spanish, Japanese, and more.
-- **Auto-Update Check** — Warns when the manifest is older than 7 days (Bungie updates weekly).
-- **Test Suite** — 50 vitest tests covering resolver, formatter, filter, and compare modules.
-- **PolyForm Noncommercial License** — This software may never be used for commercial purposes.
-
-**Bug Fixes:**
-- **Formatter** — `displayProperties.icon` was not being skipped despite being in the skip list.
-
 ## Quick Start
 
 ```bash
