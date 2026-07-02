@@ -55,29 +55,34 @@ Destiny Codex is a CLI tool **and** an MCP server. It works for **100% of the ma
 ## Quick Start
 
 ```bash
-# 1. Install
+# 1. Install dependencies + build
 npm install
 npm run build
 
-# 2. Add your Bungie API key (get one at https://www.bungie.net/en/Application)
-cp .env.example .env
-# Edit .env: BUNGIE_API_KEY=your_key_here
+# 2. Install the `codex` command globally (links this repo)
+npm link            # or: npm install -g .
 
-# 3. (Optional) Set your preferred language (default: en)
+# 3. Add your Bungie API key (get one at https://www.bungie.net/en/Application)
+codex config set-key your_key_here
+
+# 4. (Optional) Set your preferred language (default: en)
 codex config set-language de    # German, French, Spanish, Japanese, etc.
 
-# 4. Download the manifest + build indexes
-node dist/index.js sync
-node dist/index.js index
+# 5. Download the manifest + build indexes
+codex sync
+codex index
 
-# 5. Use it
-node dist/index.js item Gjallarhorn
+# 6. Use it
+codex item Gjallarhorn
 ```
 
-Or save the API key persistently:
-```bash
-node dist/index.js config set-key your_key_here
-```
+> All commands below use the global `codex` command. If you'd rather not install
+> it globally, you can always run it in-place with `node dist/index.js <command>`
+> from the repo root (e.g. `node dist/index.js item Gjallarhorn`).
+
+Instead of `config set-key`, you can also provide the key via a `.env` file
+(`cp .env.example .env`, then set `BUNGIE_API_KEY=...`) or the `BUNGIE_API_KEY`
+environment variable.
 
 ## CLI Commands
 
@@ -236,15 +241,30 @@ Destiny Codex runs as an [MCP server](https://modelcontextprotocol.io/) over std
 codex mcp
 ```
 
-### Configure in Devin CLI
-Add to `.devin/config.json`:
+### Configure in an MCP client
+
+If you installed the `codex` command globally (`npm link` / `npm install -g .`),
+point your MCP client at it directly:
+
+```json
+{
+  "mcpServers": {
+    "destiny-codex": {
+      "command": "codex",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+If you did **not** install it globally, run it from the built output instead:
+
 ```json
 {
   "mcpServers": {
     "destiny-codex": {
       "command": "node",
-      "args": ["/path/to/destiny-codex/dist/index.js", "mcp"],
-      "cwd": "/path/to/destiny-codex"
+      "args": ["/path/to/destiny-codex/dist/index.js", "mcp"]
     }
   }
 }
@@ -374,28 +394,6 @@ Destiny Codex:
 - Node.js **22.5+** (uses built-in `node:sqlite`). On Node 22/23 it may require the `--experimental-sqlite` flag; on Node 24+ it is stable.
 - A Bungie.net API key (free, get one at https://www.bungie.net/en/Application)
 
-## Project Structure
-
-```
-src/
-├── index.ts          # Entry point (loads dotenv, dispatches to CLI)
-├── cli.ts            # Commander-based CLI
-├── api.ts            # Programmatic API (DestinyCodex class) for app integration
-├── server.ts         # REST API HTTP server (codex serve)
-├── mcp-server.ts     # MCP server registering all tools
-├── manifest.ts       # Bungie API client, SQLite cache, version tracking
-├── resolver.ts       # Hash-reference detection + resolution
-├── formatter.ts      # Definition → AI-readable text
-├── relationships.ts  # Reverse index, outgoing-refs, graph traversal
-├── filter.ts         # Structured filter queries
-├── browse.ts         # Enriched item browsing (icons, stats, sockets, flavor text)
-├── rolls.ts          # Weapon perk-roll extraction (plug sets, random rolls)
-├── perksearch.ts     # Reverse perk search (which weapons can roll perk X?)
-├── compare.ts        # Side-by-side item comparison
-├── search.ts         # Name index for fast substring search
-├── sockets.ts        # Shared weapon-socket / perk extraction
-├── enums.ts          # Central class/damage enum <-> name mappings
-└── index-sqlite.ts   # SQLite-backed versioned indexes (incl. weapon_perks)
 ```
 
 ## License
